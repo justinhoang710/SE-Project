@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card narrow">
+  <h2>Submit Call-Out</h2>
+  <form method="post">
+    <label>My Shift
+      <select name="shift_id" required>
+        <option value="">Select shift</option>
+        {% for s in my_upcoming_shifts %}
+          <option value="{{ s.id }}">{{ s.shift_date }} {{ s.start_time }}-{{ s.end_time }} ({{ s.class_name }})</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>Reason
+      <textarea name="reason" rows="4" required></textarea>
+    </label>
+
+    <button type="submit">Submit Call-Out Request</button>
+  </form>
+</section>
+{% endblock %}

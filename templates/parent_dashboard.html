@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Parent Dashboard</h2>
+  <p>View your child's upcoming class schedule.</p>
+</section>
+
+{% for child in children %}
+  <section class="card">
+    <h3>{{ child.child_name }}</h3>
+    <table>
+      <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Instructor</th></tr>
+      {% for cls in child_schedules[child.id] %}
+        <tr>
+          <td>{{ cls.class_date }}</td>
+          <td>{{ cls.start_time }}</td>
+          <td>{{ cls.end_time }}</td>
+          <td>{{ cls.class_title }}</td>
+          <td>{{ cls.instructor_name }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No classes scheduled.</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+{% else %}
+  <section class="card"><p>No children linked to this account.</p></section>
+{% endfor %}
+{% endblock %}

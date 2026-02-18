@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Manager Dashboard</h2>
+</section>
+
+<section class="card">
+  <h3>All Shifts</h3>
+  <table>
+    <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Employee</th></tr>
+    {% for s in all_shifts %}
+      <tr>
+        <td>{{ s.shift_date }}</td>
+        <td>{{ s.start_time }}</td>
+        <td>{{ s.end_time }}</td>
+        <td>{{ s.class_name }}</td>
+        <td>{{ s.employee }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5">No shifts found.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h3>Pending Requests</h3>
+  <table>
+    <tr><th>Type</th><th>Requester</th><th>Target Employee</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
+    {% for r in pending_requests %}
+      <tr>
+        <td>{{ r.request_type }}</td>
+        <td>{{ r.requester }}</td>
+        <td>{{ r.requested_employee or '-' }}</td>
+        <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
+        <td>{{ r.reason }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='approve') }}">
+            <button type="submit">Approve</button>
+          </form>
+          <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='reject') }}">
+            <button type="submit" class="danger">Reject</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6">No pending requests.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,142 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f4f6f8;
+  color: #1f2937;
+}
+
+header {
+  background: #111827;
+  color: #fff;
+  padding: 14px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+nav {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+nav a {
+  color: #fff;
+  text-decoration: none;
+  background: #374151;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+main {
+  max-width: 1000px;
+  margin: 20px auto;
+  padding: 0 12px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.narrow {
+  max-width: 480px;
+}
+
+h2, h3 {
+  margin-top: 0;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+}
+
+button,
+.button {
+  display: inline-block;
+  text-decoration: none;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+button.danger {
+  background: #dc2626;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border: 1px solid #e5e7eb;
+  padding: 8px;
+  text-align: left;
+}
+
+.flash {
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.flash.error {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.flash.success {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.flash.info {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.inline {
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.hint {
+  font-size: 0.9rem;
+  color: #6b7280;
+}

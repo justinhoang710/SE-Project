@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card narrow">
+  <h2>Register</h2>
+  <form method="post">
+    <label>Username
+      <input type="text" name="username" minlength="3" required />
+    </label>
+
+    <label>Password
+      <input type="password" name="password" minlength="6" required />
+    </label>
+
+    <label>Confirm Password
+      <input type="password" name="confirm_password" minlength="6" required />
+    </label>
+
+    <label>Account Type
+      <select name="role" id="role" required>
+        <option value="">Select account type</option>
+        <option value="employee">Employee</option>
+        <option value="parent">Parent</option>
+      </select>
+    </label>
+
+    <label id="child-name-wrap">Child Name (required for parent)
+      <input type="text" name="child_name" />
+    </label>
+
+    <button type="submit">Create Account</button>
+  </form>
+  <p class="hint"><a href="{{ url_for('login') }}">Back to login</a></p>
+</section>
+
+<script>
+  const roleSelect = document.getElementById('role');
+  const childWrap = document.getElementById('child-name-wrap');
+
+  function updateChildVisibility() {
+    const show = roleSelect.value === 'parent';
+    childWrap.style.display = show ? 'flex' : 'none';
+  }
+
+  roleSelect.addEventListener('change', updateChildVisibility);
+  updateChildVisibility();
+</script>
+{% endblock %}

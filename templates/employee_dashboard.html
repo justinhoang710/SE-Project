@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Employee Dashboard</h2>
+  <div class="actions">
+    <a class="button" href="{{ url_for('request_switch') }}">Request Shift Switch</a>
+    <a class="button" href="{{ url_for('request_callout') }}">Submit Call-Out</a>
+  </div>
+</section>
+
+<section class="card">
+  <h3>My Schedule</h3>
+  <table>
+    <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th></tr>
+    {% for s in my_shifts %}
+      <tr>
+        <td>{{ s.shift_date }}</td>
+        <td>{{ s.start_time }}</td>
+        <td>{{ s.end_time }}</td>
+        <td>{{ s.class_name }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4">No shifts assigned.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h3>My Requests</h3>
+  <table>
+    <tr><th>Type</th><th>Status</th><th>Shift</th><th>Requested Employee</th><th>Reason</th><th>Submitted</th></tr>
+    {% for r in my_requests %}
+      <tr>
+        <td>{{ r.request_type }}</td>
+        <td>{{ r.status }}</td>
+        <td>
+          {% if r.shift_date %}
+            {{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})
+          {% else %}
+            N/A
+          {% endif %}
+        </td>
+        <td>{{ r.requested_employee or '-' }}</td>
+        <td>{{ r.reason }}</td>
+        <td>{{ r.created_at }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6">No requests yet.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}
