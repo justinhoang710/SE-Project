@@ -19,7 +19,8 @@ def _load_env_file() -> None:
         key = key.strip()
         value = value.strip().strip('"').strip("'")
         if key:
-            os.environ.setdefault(key, value)
+            # Make local project .env authoritative for this dev app.
+            os.environ[key] = value
 
 
 def get_db():

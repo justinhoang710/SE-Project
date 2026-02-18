@@ -7,7 +7,9 @@ VALUES
   ('employee1', 'sha256$5b2f8e27e2e5b4081c03ce70b288c87bd1263140cbd1bd9ae078123509b7caff', 'employee'),
   ('employee2', 'sha256$5b2f8e27e2e5b4081c03ce70b288c87bd1263140cbd1bd9ae078123509b7caff', 'employee'),
   ('parent1', 'sha256$82e3edf5f5f3a46b5f94579b61817fd9a1f356adcef5ee22da3b96ef775c4860', 'parent')
-ON DUPLICATE KEY UPDATE username = VALUES(username);
+ON DUPLICATE KEY UPDATE
+  password_hash = VALUES(password_hash),
+  role = VALUES(role);
 
 -- Child for parent account
 INSERT INTO children (child_name, parent_user_id)
