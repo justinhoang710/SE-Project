@@ -27,12 +27,8 @@ mysql -u root -p < seed.sql
 If your MySQL user/database differ, set env vars before running app:
 
 ```bash
-export MYSQL_HOST=127.0.0.1
-export MYSQL_PORT=3306
-export MYSQL_USER=root
-export MYSQL_PASSWORD=your_password
-export MYSQL_DATABASE=karate_academy
-export FLASK_SECRET_KEY=replace_this
+cp .env.example .env
+# then edit .env and set MYSQL_PASSWORD (and any other overrides)
 ```
 
 ## 3. Run app
