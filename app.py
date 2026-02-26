@@ -568,6 +568,7 @@ def _staff_progress_screen(page_title):
     cur = db.cursor(dictionary=True)
 
     if request.method == "POST":
+        # Route multiple form intents from a single staff progress page.
         action = request.form.get("action", "add_progress").strip()
 
         if action == "send_parent_note":
@@ -621,6 +622,7 @@ def _staff_progress_screen(page_title):
 
     cur.execute("SELECT id, child_name FROM children ORDER BY child_name")
     children = cur.fetchall()
+    # Keep active techniques for new assignments and full list for row edits.
     cur.execute("SELECT id, technique_name, is_active FROM techniques ORDER BY technique_name")
     all_techniques = cur.fetchall()
     techniques = [t for t in all_techniques if t["is_active"]]
@@ -941,6 +943,7 @@ def edit_technique(technique_id):
 
     final_description = description
     if extra_comment:
+        # Append a simple audit-style comment line into description text.
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         comment_line = f"[{timestamp} {session['username']}] {extra_comment}"
         if final_description:
@@ -995,7 +998,7 @@ def delete_technique(technique_id):
 @login_required
 @role_required("employee", "manager")
 def toggle_progress(progress_id):
-    # Flip completion state for a single assigned child technique.
+    # Flip completion state for a single assigned student technique.
     db = get_db()
     cur = db.cursor(dictionary=True)
     cur.execute(
@@ -1147,7 +1150,7 @@ def process_request(request_id, action):
 @login_required
 @role_required("parent")
 def parent_dashboard():
-    # Show parent-facing child progress summaries and class schedules.
+    # Show parent-facing academy schedule plus linked-student progress details.
     db = get_db()
     cur = db.cursor(dictionary=True)
 
