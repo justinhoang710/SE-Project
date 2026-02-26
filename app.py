@@ -97,6 +97,7 @@ def _fetch_child_progress_rows(cur, child_ids):
         SELECT
             csp.id,
             csp.child_id,
+            csp.technique_id,
             csp.completed,
             csp.assigned_at,
             csp.completed_at,
@@ -302,7 +303,7 @@ def register():
             return render_template("register.html")
 
         if role == "parent" and not child_name:
-            flash("Parent registration requires a child name.", "error")
+            flash("Parent registration requires a student name.", "error")
             return render_template("register.html")
 
         db = get_db()
@@ -562,7 +563,7 @@ def request_callout():
 
 
 def _staff_progress_screen(page_title):
-    # Shared employee/manager child-progress entry and listing screen.
+    # Shared employee/manager student-progress entry and listing screen.
     db = get_db()
     cur = db.cursor(dictionary=True)
 
@@ -576,7 +577,7 @@ def _staff_progress_screen(page_title):
             cur.execute("SELECT id FROM children WHERE id = %s", (child_id,))
             child = cur.fetchone()
             if not child or not parent_note:
-                flash("Please choose a valid child and write a note.", "error")
+                flash("Please choose a valid student and write a note.", "error")
                 cur.close()
                 return redirect(request.path)
 
@@ -602,7 +603,7 @@ def _staff_progress_screen(page_title):
             technique = cur.fetchone()
 
             if not child or not technique:
-                flash("Please choose a valid child and active technique.", "error")
+                flash("Please choose a valid student and active technique.", "error")
                 cur.close()
                 return redirect(request.path)
 
@@ -620,8 +621,9 @@ def _staff_progress_screen(page_title):
 
     cur.execute("SELECT id, child_name FROM children ORDER BY child_name")
     children = cur.fetchall()
-    cur.execute("SELECT id, technique_name FROM techniques WHERE is_active = 1 ORDER BY technique_name")
-    techniques = cur.fetchall()
+    cur.execute("SELECT id, technique_name, is_active FROM techniques ORDER BY technique_name")
+    all_techniques = cur.fetchall()
+    techniques = [t for t in all_techniques if t["is_active"]]
     child_summary = _fetch_child_progress_summary(cur)
     child_progress_rows = _fetch_child_progress_rows(cur, [c["id"] for c in child_summary])
     child_parent_notes = _fetch_parent_notes_rows(cur, [c["id"] for c in child_summary])
@@ -631,6 +633,7 @@ def _staff_progress_screen(page_title):
         page_title=page_title,
         children=children,
         techniques=techniques,
+        all_techniques=all_techniques,
         child_summary=child_summary,
         child_progress_rows=child_progress_rows,
         child_parent_notes=child_parent_notes,
@@ -864,7 +867,7 @@ def manager_schedule():
 @role_required("manager")
 def manager_progress():
     # Reuse shared progress page with manager-specific title text.
-    return _staff_progress_screen("Child Progress Screen (Manager)")
+    return _staff_progress_screen("Student Progress Screen (Manager)")
 
 
 @app.route("/techniques", methods=["GET", "POST"])
@@ -1018,6 +1021,66 @@ def toggle_progress(progress_id):
     db.commit()
     cur.close()
     flash("Progress updated.", "success")
+    return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.route("/progress/<int:progress_id>/edit", methods=["POST"])
+@login_required
+@role_required("employee", "manager")
+def edit_progress(progress_id):
+    # Update technique and notes for an assigned student progress row.
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    technique_id = request.form.get("technique_id", type=int)
+    notes = request.form.get("notes", "").strip()
+
+    if not technique_id:
+        cur.close()
+        flash("Technique is required.", "error")
+        return redirect(request.referrer or url_for("dashboard"))
+
+    cur.execute("SELECT id FROM techniques WHERE id = %s", (technique_id,))
+    technique = cur.fetchone()
+    if not technique:
+        cur.close()
+        flash("Technique not found.", "error")
+        return redirect(request.referrer or url_for("dashboard"))
+
+    cur.execute(
+        """
+        UPDATE child_skill_progress
+        SET technique_id = %s, notes = %s
+        WHERE id = %s
+        """,
+        (technique_id, notes or None, progress_id),
+    )
+    if cur.rowcount == 0:
+        cur.close()
+        flash("Progress item not found.", "error")
+        return redirect(request.referrer or url_for("dashboard"))
+
+    db.commit()
+    cur.close()
+    flash("Progress row updated.", "success")
+    return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.route("/progress/<int:progress_id>/delete", methods=["POST"])
+@login_required
+@role_required("employee", "manager")
+def delete_progress(progress_id):
+    # Remove an assigned student progress row.
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("DELETE FROM child_skill_progress WHERE id = %s", (progress_id,))
+    if cur.rowcount == 0:
+        cur.close()
+        flash("Progress item not found.", "error")
+        return redirect(request.referrer or url_for("dashboard"))
+
+    db.commit()
+    cur.close()
+    flash("Progress row deleted.", "success")
     return redirect(request.referrer or url_for("dashboard"))
 
 

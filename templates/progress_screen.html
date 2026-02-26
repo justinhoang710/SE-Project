@@ -2,12 +2,12 @@
 {% block content %}
 <section class="card">
   <h2>{{ page_title }}</h2>
-  <p>Assign a new skill to a child and mark completion with the checkbox.</p>
+  <p>Assign a new skill to a student and mark completion with the checkbox.</p>
   <form method="post">
     <input type="hidden" name="action" value="add_progress" />
-    <label>Child
+    <label>Student
       <select name="child_id" required>
-        <option value="">Select child</option>
+        <option value="">Select student</option>
         {% for child in children %}
           <option value="{{ child.id }}">{{ child.child_name }}</option>
         {% endfor %}
@@ -39,9 +39,9 @@
   <h3>Send Note To Parent</h3>
   <form method="post">
     <input type="hidden" name="action" value="send_parent_note" />
-    <label>Child
+    <label>Student
       <select name="child_id" required>
-        <option value="">Select child</option>
+        <option value="">Select student</option>
         {% for child in children %}
           <option value="{{ child.id }}">{{ child.child_name }}</option>
         {% endfor %}
@@ -54,8 +54,16 @@
   </form>
 </section>
 
+<section class="card">
+  <h3>Student Search</h3>
+  <label>
+    Search students
+    <input type="search" id="student-search" placeholder="Type a student name" />
+  </label>
+</section>
+
 {% for child in child_summary %}
-  <section class="card">
+  <section class="card student-card" data-student-name="{{ child.child_name|lower }}">
     <h3>{{ child.child_name }}</h3>
     <p>
       Current Belt: <strong>{{ child.current_belt }}</strong><br />
@@ -69,7 +77,7 @@
       <div class="progress-fill" style="width: {{ child.belt_progress_percent|int }}%;"></div>
     </div>
     <table>
-      <tr><th>Technique</th><th>Completed</th><th>Assigned By</th><th>Assigned At</th><th>Completed At</th><th>Notes</th><th>Action</th></tr>
+      <tr><th>Technique</th><th>Completed</th><th>Assigned By</th><th>Assigned At</th><th>Completed At</th><th>Notes</th><th>Actions</th></tr>
       {% for row in child_progress_rows[child.id] %}
         <tr>
           <td>{{ row.technique_name }}</td>
@@ -79,8 +87,22 @@
           <td>{{ row.completed_at or '-' }}</td>
           <td>{{ row.notes or '-' }}</td>
           <td>
-            <form method="post" action="{{ url_for('toggle_progress', progress_id=row.id) }}">
+            <form class="inline" method="post" action="{{ url_for('edit_progress', progress_id=row.id) }}">
+              <select name="technique_id" required>
+                {% for t in all_techniques %}
+                  <option value="{{ t.id }}" {% if t.id == row.technique_id %}selected{% endif %}>
+                    {{ t.technique_name }}{% if not t.is_active %} (inactive){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+              <input type="text" name="notes" value="{{ row.notes or '' }}" placeholder="Update notes" />
+              <button type="submit">Save</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('toggle_progress', progress_id=row.id) }}">
               <button type="submit">{{ 'Uncheck' if row.completed else 'Check' }}</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('delete_progress', progress_id=row.id) }}">
+              <button type="submit" class="danger">Delete</button>
             </form>
           </td>
         </tr>
@@ -105,6 +127,19 @@
     </table>
   </section>
 {% else %}
-  <section class="card"><p>No children found.</p></section>
+  <section class="card"><p>No students found.</p></section>
 {% endfor %}
+
+<script>
+  const studentSearch = document.getElementById('student-search');
+  const studentCards = document.querySelectorAll('.student-card');
+
+  studentSearch?.addEventListener('input', () => {
+    const query = studentSearch.value.trim().toLowerCase();
+    studentCards.forEach((card) => {
+      const name = card.dataset.studentName || '';
+      card.style.display = !query || name.includes(query) ? '' : 'none';
+    });
+  });
+</script>
 {% endblock %}
