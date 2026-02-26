@@ -153,3 +153,25 @@ AND NOT EXISTS (
   FROM child_skill_progress p
   WHERE p.child_id = c.id AND p.technique_id = t.id
 );
+
+-- Notes to parent
+CREATE TABLE IF NOT EXISTS parent_notes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  child_id INT NOT NULL,
+  author_user_id INT NOT NULL,
+  note_text TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (child_id) REFERENCES children(id),
+  FOREIGN KEY (author_user_id) REFERENCES users(id)
+);
+
+INSERT INTO parent_notes (child_id, author_user_id, note_text)
+SELECT c.id, u.id, 'Great focus this week. Keep practicing front kick at home.'
+FROM children c
+JOIN users u ON u.username = 'employee1'
+WHERE c.child_name = 'child1'
+AND NOT EXISTS (
+  SELECT 1
+  FROM parent_notes pn
+  WHERE pn.child_id = c.id AND pn.note_text = 'Great focus this week. Keep practicing front kick at home.'
+);

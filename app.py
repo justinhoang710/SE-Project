@@ -1,7 +1,7 @@
 import os
 import hashlib
 import hmac
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import wraps
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
@@ -108,6 +108,77 @@ def _fetch_child_progress_rows(cur, child_ids):
         JOIN users u ON u.id = csp.assigned_by_user_id
         WHERE csp.child_id IN ({placeholders})
         ORDER BY csp.assigned_at DESC
+        """,
+        tuple(child_ids),
+    )
+    rows = cur.fetchall()
+    grouped = {child_id: [] for child_id in child_ids}
+    for row in rows:
+        grouped[row["child_id"]].append(row)
+    return grouped
+
+
+def _build_two_week_calendar(start_date, shifts):
+    # Build a 14-day calendar payload grouped into 2 weeks for UI rendering.
+    shifts_by_date = {}
+    for shift in shifts:
+        key = shift["shift_date"].isoformat()
+        shifts_by_date.setdefault(key, []).append(shift)
+
+    days = []
+    for offset in range(14):
+        day_value = start_date + timedelta(days=offset)
+        key = day_value.isoformat()
+        days.append(
+            {
+                "iso_date": key,
+                "display_date": day_value.strftime("%b %d"),
+                "weekday": day_value.strftime("%A"),
+                "weekday_short": day_value.strftime("%a"),
+                "shifts": shifts_by_date.get(key, []),
+            }
+        )
+
+    return [days[:7], days[7:]]
+
+
+def _ensure_parent_notes_table(cur):
+    # Ensure parent notes table exists so note features work on existing databases.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS parent_notes (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          child_id INT NOT NULL,
+          author_user_id INT NOT NULL,
+          note_text TEXT NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (child_id) REFERENCES children(id),
+          FOREIGN KEY (author_user_id) REFERENCES users(id)
+        )
+        """
+    )
+
+
+def _fetch_parent_notes_rows(cur, child_ids):
+    # Return staff-authored notes to parents grouped by child id.
+    if not child_ids:
+        return {}
+
+    _ensure_parent_notes_table(cur)
+    placeholders = ", ".join(["%s"] * len(child_ids))
+    cur.execute(
+        f"""
+        SELECT
+            pn.id,
+            pn.child_id,
+            pn.note_text,
+            pn.created_at,
+            u.username AS author_username,
+            u.role AS author_role
+        FROM parent_notes pn
+        JOIN users u ON u.id = pn.author_user_id
+        WHERE pn.child_id IN ({placeholders})
+        ORDER BY pn.created_at DESC
         """,
         tuple(child_ids),
     )
@@ -323,10 +394,33 @@ def employee_dashboard():
         (session["user_id"],),
     )
     my_requests = cur.fetchall()
+
+    calendar_start = date.today()
+    calendar_end = calendar_start + timedelta(days=13)
+    cur.execute(
+        """
+        SELECT
+            s.id,
+            s.shift_date,
+            s.class_name,
+            TIME_FORMAT(s.start_time, '%%H:%%i') AS start_label,
+            TIME_FORMAT(s.end_time, '%%H:%%i') AS end_label
+        FROM shifts s
+        WHERE s.employee_user_id = %s
+          AND s.shift_date BETWEEN %s AND %s
+        ORDER BY s.shift_date, s.start_time
+        """,
+        (session["user_id"], calendar_start, calendar_end),
+    )
+    upcoming_shifts = cur.fetchall()
+    calendar_weeks = _build_two_week_calendar(calendar_start, upcoming_shifts)
     cur.close()
 
     return render_template(
-        "employee_dashboard.html", my_shifts=my_shifts, my_requests=my_requests
+        "employee_dashboard.html",
+        my_shifts=my_shifts,
+        my_requests=my_requests,
+        calendar_weeks=calendar_weeks,
     )
 
 
@@ -473,32 +567,56 @@ def _staff_progress_screen(page_title):
     cur = db.cursor(dictionary=True)
 
     if request.method == "POST":
-        child_id = request.form.get("child_id", type=int)
-        technique_id = request.form.get("technique_id", type=int)
-        notes = request.form.get("notes", "").strip()
-        completed = 1 if request.form.get("completed") == "on" else 0
+        action = request.form.get("action", "add_progress").strip()
 
-        cur.execute("SELECT id FROM children WHERE id = %s", (child_id,))
-        child = cur.fetchone()
-        cur.execute("SELECT id FROM techniques WHERE id = %s AND is_active = 1", (technique_id,))
-        technique = cur.fetchone()
+        if action == "send_parent_note":
+            child_id = request.form.get("child_id", type=int)
+            parent_note = request.form.get("parent_note", "").strip()
 
-        if not child or not technique:
-            flash("Please choose a valid child and active technique.", "error")
-            cur.close()
-            return redirect(request.path)
+            cur.execute("SELECT id FROM children WHERE id = %s", (child_id,))
+            child = cur.fetchone()
+            if not child or not parent_note:
+                flash("Please choose a valid child and write a note.", "error")
+                cur.close()
+                return redirect(request.path)
 
-        cur.execute(
-            """
-            INSERT INTO child_skill_progress
-                (child_id, technique_id, assigned_by_user_id, completed, completed_at, notes)
-            VALUES
-                (%s, %s, %s, %s, CASE WHEN %s = 1 THEN CURRENT_TIMESTAMP ELSE NULL END, %s)
-            """,
-            (child_id, technique_id, session["user_id"], completed, completed, notes or None),
-        )
-        db.commit()
-        flash("Progress record added.", "success")
+            _ensure_parent_notes_table(cur)
+            cur.execute(
+                """
+                INSERT INTO parent_notes (child_id, author_user_id, note_text)
+                VALUES (%s, %s, %s)
+                """,
+                (child_id, session["user_id"], parent_note),
+            )
+            db.commit()
+            flash("Parent note sent.", "success")
+        else:
+            child_id = request.form.get("child_id", type=int)
+            technique_id = request.form.get("technique_id", type=int)
+            notes = request.form.get("notes", "").strip()
+            completed = 1 if request.form.get("completed") == "on" else 0
+
+            cur.execute("SELECT id FROM children WHERE id = %s", (child_id,))
+            child = cur.fetchone()
+            cur.execute("SELECT id FROM techniques WHERE id = %s AND is_active = 1", (technique_id,))
+            technique = cur.fetchone()
+
+            if not child or not technique:
+                flash("Please choose a valid child and active technique.", "error")
+                cur.close()
+                return redirect(request.path)
+
+            cur.execute(
+                """
+                INSERT INTO child_skill_progress
+                    (child_id, technique_id, assigned_by_user_id, completed, completed_at, notes)
+                VALUES
+                    (%s, %s, %s, %s, CASE WHEN %s = 1 THEN CURRENT_TIMESTAMP ELSE NULL END, %s)
+                """,
+                (child_id, technique_id, session["user_id"], completed, completed, notes or None),
+            )
+            db.commit()
+            flash("Progress record added.", "success")
 
     cur.execute("SELECT id, child_name FROM children ORDER BY child_name")
     children = cur.fetchall()
@@ -506,6 +624,7 @@ def _staff_progress_screen(page_title):
     techniques = cur.fetchall()
     child_summary = _fetch_child_progress_summary(cur)
     child_progress_rows = _fetch_child_progress_rows(cur, [c["id"] for c in child_summary])
+    child_parent_notes = _fetch_parent_notes_rows(cur, [c["id"] for c in child_summary])
     cur.close()
     return render_template(
         "progress_screen.html",
@@ -514,6 +633,7 @@ def _staff_progress_screen(page_title):
         techniques=techniques,
         child_summary=child_summary,
         child_progress_rows=child_progress_rows,
+        child_parent_notes=child_parent_notes,
     )
 
 
@@ -553,10 +673,34 @@ def manager_dashboard():
         """
     )
     pending_requests = cur.fetchall()
+
+    calendar_start = date.today()
+    calendar_end = calendar_start + timedelta(days=13)
+    cur.execute(
+        """
+        SELECT
+            s.id,
+            s.shift_date,
+            s.class_name,
+            u.username AS employee,
+            TIME_FORMAT(s.start_time, '%%H:%%i') AS start_label,
+            TIME_FORMAT(s.end_time, '%%H:%%i') AS end_label
+        FROM shifts s
+        JOIN users u ON u.id = s.employee_user_id
+        WHERE s.shift_date BETWEEN %s AND %s
+        ORDER BY s.shift_date, s.start_time
+        """,
+        (calendar_start, calendar_end),
+    )
+    upcoming_shifts = cur.fetchall()
+    calendar_weeks = _build_two_week_calendar(calendar_start, upcoming_shifts)
     cur.close()
 
     return render_template(
-        "manager_dashboard.html", all_shifts=all_shifts, pending_requests=pending_requests
+        "manager_dashboard.html",
+        all_shifts=all_shifts,
+        pending_requests=pending_requests,
+        calendar_weeks=calendar_weeks,
     )
 
 
@@ -568,59 +712,89 @@ def manager_schedule():
     db = get_db()
     cur = db.cursor(dictionary=True)
 
+    calendar_start = date.today()
+    calendar_end = calendar_start + timedelta(days=13)
+
+    def parse_selected_day(raw_value):
+        if not raw_value:
+            return calendar_start
+        try:
+            parsed = datetime.strptime(raw_value, "%Y-%m-%d").date()
+        except ValueError:
+            return calendar_start
+        if parsed < calendar_start or parsed > calendar_end:
+            return calendar_start
+        return parsed
+
+    def schedule_redirect(day_value):
+        return redirect(url_for("manager_schedule", day=day_value.isoformat()))
+
     if request.method == "POST":
         action = request.form.get("action", "").strip()
+        selected_day = parse_selected_day(request.form.get("selected_day", "").strip())
 
-        if action == "assign":
-            # Reassign an existing shift to a selected employee.
+        if action == "update_shift":
+            # Update an existing shift's assignment and class time details.
             shift_id = request.form.get("shift_id", type=int)
             employee_id = request.form.get("employee_user_id", type=int)
+            start_time = request.form.get("start_time", "").strip()
+            end_time = request.form.get("end_time", "").strip()
+            class_name = request.form.get("class_name", "").strip()
 
-            if not shift_id or not employee_id:
-                flash("Shift and employee are required.", "error")
+            if not (shift_id and employee_id and start_time and end_time and class_name):
+                flash("Employee, class, start time, and end time are required.", "error")
                 cur.close()
-                return redirect(url_for("manager_schedule"))
+                return schedule_redirect(selected_day)
 
             cur.execute("SELECT id FROM shifts WHERE id = %s", (shift_id,))
             shift = cur.fetchone()
             if not shift:
                 flash("Shift not found.", "error")
                 cur.close()
-                return redirect(url_for("manager_schedule"))
+                return schedule_redirect(selected_day)
 
             cur.execute("SELECT id FROM users WHERE id = %s AND role = 'employee'", (employee_id,))
             employee = cur.fetchone()
             if not employee:
                 flash("Employee not found.", "error")
                 cur.close()
-                return redirect(url_for("manager_schedule"))
+                return schedule_redirect(selected_day)
 
             cur.execute(
-                "UPDATE shifts SET employee_user_id = %s WHERE id = %s",
-                (employee_id, shift_id),
+                """
+                UPDATE shifts
+                SET employee_user_id = %s,
+                    start_time = %s,
+                    end_time = %s,
+                    class_name = %s
+                WHERE id = %s
+                """,
+                (employee_id, start_time, end_time, class_name, shift_id),
             )
             db.commit()
-            flash("Shift assignment updated.", "success")
+            flash("Shift updated.", "success")
+            cur.close()
+            return schedule_redirect(selected_day)
 
         elif action == "create":
-            # Create a new shift on the chosen calendar day.
-            shift_date = request.form.get("shift_date", "").strip()
+            # Create a new shift on the selected calendar day.
             start_time = request.form.get("start_time", "").strip()
             end_time = request.form.get("end_time", "").strip()
             class_name = request.form.get("class_name", "").strip()
             employee_id = request.form.get("employee_user_id", type=int)
+            shift_date = selected_day.isoformat()
 
-            if not (shift_date and start_time and end_time and class_name and employee_id):
+            if not (start_time and end_time and class_name and employee_id):
                 flash("All fields are required to create a shift.", "error")
                 cur.close()
-                return redirect(url_for("manager_schedule"))
+                return schedule_redirect(selected_day)
 
             cur.execute("SELECT id FROM users WHERE id = %s AND role = 'employee'", (employee_id,))
             employee = cur.fetchone()
             if not employee:
                 flash("Employee not found.", "error")
                 cur.close()
-                return redirect(url_for("manager_schedule"))
+                return schedule_redirect(selected_day)
 
             cur.execute(
                 """
@@ -631,9 +805,14 @@ def manager_schedule():
             )
             db.commit()
             flash("Shift created.", "success")
+            cur.close()
+            return schedule_redirect(selected_day)
 
-    start_date = date.today()
-    end_date = start_date + timedelta(days=13)
+        flash("Invalid schedule action.", "error")
+        cur.close()
+        return schedule_redirect(selected_day)
+
+    selected_day = parse_selected_day(request.args.get("day", "").strip())
 
     cur.execute(
         "SELECT id, username FROM users WHERE role = 'employee' ORDER BY username"
@@ -657,34 +836,26 @@ def manager_schedule():
         WHERE s.shift_date BETWEEN %s AND %s
         ORDER BY s.shift_date, s.start_time
         """,
-        (start_date, end_date),
+        (calendar_start, calendar_end),
     )
     shifts = cur.fetchall()
     cur.close()
 
-    shifts_by_date = {}
-    for shift in shifts:
-        key = shift["shift_date"].isoformat()
-        shifts_by_date.setdefault(key, []).append(shift)
-
-    days = []
-    for offset in range(14):
-        day_value = start_date + timedelta(days=offset)
-        days.append(
-            {
-                "iso_date": day_value.isoformat(),
-                "display_date": day_value.strftime("%b %d"),
-                "weekday": day_value.strftime("%A"),
-                "shifts": shifts_by_date.get(day_value.isoformat(), []),
-            }
-        )
-
-    calendar_weeks = [days[:7], days[7:]]
+    calendar_weeks = _build_two_week_calendar(calendar_start, shifts)
+    selected_day_key = selected_day.isoformat()
+    selected_day_shifts = []
+    for week in calendar_weeks:
+        for day in week:
+            day["is_selected"] = day["iso_date"] == selected_day_key
+            if day["is_selected"]:
+                selected_day_shifts = day["shifts"]
 
     return render_template(
         "manager_schedule.html",
         calendar_weeks=calendar_weeks,
         employees=employees,
+        selected_day=selected_day,
+        selected_day_shifts=selected_day_shifts,
     )
 
 
@@ -740,9 +911,9 @@ def techniques():
     return render_template("techniques.html", technique_list=technique_list)
 
 
-@app.route("/manager/techniques/<int:technique_id>/edit", methods=["POST"])
+@app.route("/techniques/<int:technique_id>/edit", methods=["POST"])
 @login_required
-@role_required("manager")
+@role_required("employee", "manager")
 def edit_technique(technique_id):
     # Update technique metadata and active/inactive state.
     db = get_db()
@@ -750,12 +921,29 @@ def edit_technique(technique_id):
 
     technique_name = request.form.get("technique_name", "").strip()
     description = request.form.get("description", "").strip()
+    extra_comment = request.form.get("extra_comment", "").strip()
     is_active = 1 if request.form.get("is_active") == "on" else 0
 
     if not technique_name:
         flash("Technique name is required.", "error")
         cur.close()
         return redirect(url_for("techniques"))
+
+    cur.execute("SELECT id, description FROM techniques WHERE id = %s", (technique_id,))
+    existing = cur.fetchone()
+    if not existing:
+        cur.close()
+        flash("Technique not found.", "error")
+        return redirect(url_for("techniques"))
+
+    final_description = description
+    if extra_comment:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        comment_line = f"[{timestamp} {session['username']}] {extra_comment}"
+        if final_description:
+            final_description = f"{final_description}\n{comment_line}"
+        else:
+            final_description = comment_line
 
     try:
         cur.execute(
@@ -764,13 +952,36 @@ def edit_technique(technique_id):
             SET technique_name = %s, description = %s, is_active = %s
             WHERE id = %s
             """,
-            (technique_name, description, is_active, technique_id),
+            (technique_name, final_description, is_active, technique_id),
         )
         db.commit()
         flash("Technique updated.", "success")
     except Exception:
         db.rollback()
         flash("Could not update technique.", "error")
+    finally:
+        cur.close()
+
+    return redirect(url_for("techniques"))
+
+
+@app.route("/techniques/<int:technique_id>/delete", methods=["POST"])
+@login_required
+@role_required("employee", "manager")
+def delete_technique(technique_id):
+    # Delete a technique if it is not currently referenced by child progress records.
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    try:
+        cur.execute("DELETE FROM techniques WHERE id = %s", (technique_id,))
+        if cur.rowcount == 0:
+            flash("Technique not found.", "error")
+        else:
+            db.commit()
+            flash("Technique deleted.", "success")
+    except Exception:
+        db.rollback()
+        flash("Technique could not be deleted (it may be in use).", "error")
     finally:
         cur.close()
 
@@ -878,26 +1089,50 @@ def parent_dashboard():
     cur = db.cursor(dictionary=True)
 
     children = _fetch_child_progress_summary(cur, parent_user_id=session["user_id"])
-    child_schedules = {}
-    for child in children:
-        cur.execute(
-            """
-            SELECT class_date, start_time, end_time, class_title, instructor_name
-            FROM child_schedule
-            WHERE child_id = %s
-            ORDER BY class_date, start_time
-            """,
-            (child["id"],),
-        )
-        child_schedules[child["id"]] = cur.fetchall()
+    calendar_start = date.today()
+    calendar_end = calendar_start + timedelta(days=13)
+    cur.execute(
+        """
+        SELECT
+            s.shift_date,
+            s.start_time,
+            s.end_time,
+            s.class_name,
+            u.username AS employee
+        FROM shifts s
+        JOIN users u ON u.id = s.employee_user_id
+        ORDER BY s.shift_date, s.start_time
+        """
+    )
+    academy_schedule = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT
+            s.shift_date,
+            s.class_name,
+            u.username AS employee,
+            TIME_FORMAT(s.start_time, '%%H:%%i') AS start_label,
+            TIME_FORMAT(s.end_time, '%%H:%%i') AS end_label
+        FROM shifts s
+        JOIN users u ON u.id = s.employee_user_id
+        WHERE s.shift_date BETWEEN %s AND %s
+        ORDER BY s.shift_date, s.start_time
+        """,
+        (calendar_start, calendar_end),
+    )
+    academy_calendar_weeks = _build_two_week_calendar(calendar_start, cur.fetchall())
 
     child_progress_rows = _fetch_child_progress_rows(cur, [c["id"] for c in children])
+    child_parent_notes = _fetch_parent_notes_rows(cur, [c["id"] for c in children])
     cur.close()
     return render_template(
         "parent_dashboard.html",
         children=children,
-        child_schedules=child_schedules,
         child_progress_rows=child_progress_rows,
+        academy_schedule=academy_schedule,
+        academy_calendar_weeks=academy_calendar_weeks,
+        child_parent_notes=child_parent_notes,
     )
 
 

@@ -10,21 +10,26 @@
 </section>
 
 <section class="card">
-  <h3>All Shifts</h3>
-  <table>
-    <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Employee</th></tr>
-    {% for s in all_shifts %}
-      <tr>
-        <td>{{ s.shift_date }}</td>
-        <td>{{ s.start_time }}</td>
-        <td>{{ s.end_time }}</td>
-        <td>{{ s.class_name }}</td>
-        <td>{{ s.employee }}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="5">No shifts found.</td></tr>
+  <h3>Next 2 Weeks Calendar</h3>
+  <div class="calendar-grid compact-calendar">
+    {% for week in calendar_weeks %}
+      {% for day in week %}
+        <article class="calendar-day">
+          <header class="calendar-day-header">
+            <h3>{{ day.weekday_short }}</h3>
+            <p>{{ day.display_date }}</p>
+          </header>
+          <div class="calendar-shift-list">
+            {% for shift in day.shifts %}
+              <p class="calendar-shift-item">{{ shift.start_label }}-{{ shift.end_label }} {{ shift.class_name }} ({{ shift.employee }})</p>
+            {% else %}
+              <p class="hint">No shifts</p>
+            {% endfor %}
+          </div>
+        </article>
+      {% endfor %}
     {% endfor %}
-  </table>
+  </div>
 </section>
 
 <section class="card">

@@ -73,3 +73,13 @@ CREATE TABLE IF NOT EXISTS child_skill_progress (
   FOREIGN KEY (technique_id) REFERENCES techniques(id),
   FOREIGN KEY (assigned_by_user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS parent_notes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  child_id INT NOT NULL,
+  author_user_id INT NOT NULL,
+  note_text TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (child_id) REFERENCES children(id),
+  FOREIGN KEY (author_user_id) REFERENCES users(id)
+);

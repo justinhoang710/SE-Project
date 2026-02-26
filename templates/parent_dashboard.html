@@ -2,7 +2,46 @@
 {% block content %}
 <section class="card">
   <h2>Parent Dashboard</h2>
-  <p>View your child's schedule and skill progress.</p>
+  <p>View the academy schedule, notes from staff, and your child's skill progress.</p>
+</section>
+
+<section class="card">
+  <h3>Academy Schedule: Next 2 Weeks</h3>
+  <div class="calendar-grid compact-calendar">
+    {% for week in academy_calendar_weeks %}
+      {% for day in week %}
+        <article class="calendar-day">
+          <header class="calendar-day-header">
+            <h3>{{ day.weekday_short }}</h3>
+            <p>{{ day.display_date }}</p>
+          </header>
+          <div class="calendar-shift-list">
+            {% for cls in day.shifts %}
+              <p class="calendar-shift-item">{{ cls.start_label }}-{{ cls.end_label }} {{ cls.class_name }} ({{ cls.employee }})</p>
+            {% else %}
+              <p class="hint">No classes</p>
+            {% endfor %}
+          </div>
+        </article>
+      {% endfor %}
+    {% endfor %}
+  </div>
+
+  <h3>Full Academy Schedule</h3>
+  <table>
+    <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Instructor</th></tr>
+    {% for cls in academy_schedule %}
+      <tr>
+        <td>{{ cls.shift_date }}</td>
+        <td>{{ cls.start_time }}</td>
+        <td>{{ cls.end_time }}</td>
+        <td>{{ cls.class_name }}</td>
+        <td>{{ cls.employee }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5">No classes scheduled.</td></tr>
+    {% endfor %}
+  </table>
 </section>
 
 {% for child in children %}
@@ -19,19 +58,19 @@
     <div class="progress-track">
       <div class="progress-fill" style="width: {{ child.belt_progress_percent|int }}%;"></div>
     </div>
-    <h4>Schedule</h4>
+
+    <h4>Notes From Staff</h4>
     <table>
-      <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Instructor</th></tr>
-      {% for cls in child_schedules[child.id] %}
+      <tr><th>Sent By</th><th>Role</th><th>Sent At</th><th>Note</th></tr>
+      {% for note in child_parent_notes[child.id] %}
         <tr>
-          <td>{{ cls.class_date }}</td>
-          <td>{{ cls.start_time }}</td>
-          <td>{{ cls.end_time }}</td>
-          <td>{{ cls.class_title }}</td>
-          <td>{{ cls.instructor_name }}</td>
+          <td>{{ note.author_username }}</td>
+          <td>{{ note.author_role }}</td>
+          <td>{{ note.created_at }}</td>
+          <td>{{ note.note_text }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="5">No classes scheduled.</td></tr>
+        <tr><td colspan="4">No notes from staff yet.</td></tr>
       {% endfor %}
     </table>
 

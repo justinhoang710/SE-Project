@@ -173,11 +173,26 @@ td {
   gap: 14px;
 }
 
+.compact-calendar {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
 .calendar-day {
   border: 1px solid #d1d5db;
   border-radius: 10px;
   padding: 12px;
   background: #f8fafc;
+}
+
+.calendar-day-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.calendar-day-link.selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
 }
 
 .calendar-day-header h3 {
@@ -196,6 +211,18 @@ td {
   flex-direction: column;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.calendar-shift-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.calendar-shift-item {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #1f2937;
 }
 
 .shift-editor {

@@ -4,6 +4,7 @@
   <h2>{{ page_title }}</h2>
   <p>Assign a new skill to a child and mark completion with the checkbox.</p>
   <form method="post">
+    <input type="hidden" name="action" value="add_progress" />
     <label>Child
       <select name="child_id" required>
         <option value="">Select child</option>
@@ -32,6 +33,24 @@
     </label>
 
     <button type="submit">Add Progress</button>
+  </form>
+
+  <hr />
+  <h3>Send Note To Parent</h3>
+  <form method="post">
+    <input type="hidden" name="action" value="send_parent_note" />
+    <label>Child
+      <select name="child_id" required>
+        <option value="">Select child</option>
+        {% for child in children %}
+          <option value="{{ child.id }}">{{ child.child_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Note
+      <textarea name="parent_note" rows="3" placeholder="Message for parent" required></textarea>
+    </label>
+    <button type="submit">Send Parent Note</button>
   </form>
 </section>
 
@@ -67,6 +86,21 @@
         </tr>
       {% else %}
         <tr><td colspan="7">No techniques assigned yet.</td></tr>
+      {% endfor %}
+    </table>
+
+    <h4>Notes Sent To Parent</h4>
+    <table>
+      <tr><th>Sent By</th><th>Role</th><th>Sent At</th><th>Note</th></tr>
+      {% for note in child_parent_notes[child.id] %}
+        <tr>
+          <td>{{ note.author_username }}</td>
+          <td>{{ note.author_role }}</td>
+          <td>{{ note.created_at }}</td>
+          <td>{{ note.note_text }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No parent notes yet.</td></tr>
       {% endfor %}
     </table>
   </section>

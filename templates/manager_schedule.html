@@ -2,45 +2,71 @@
 {% block content %}
 <section class="card">
   <h2>Manager Schedule Editor</h2>
-  <p class="hint">Calendar view for the next 14 days. Reassign existing shifts or add new shifts by day.</p>
+  <p class="hint">Select a calendar day, then assign employees and set class/time details for that day.</p>
 
-  <div class="calendar-grid">
+  <div class="calendar-grid compact-calendar">
     {% for week in calendar_weeks %}
       {% for day in week %}
-        <article class="calendar-day">
+        <a class="calendar-day calendar-day-link {% if day.is_selected %}selected{% endif %}" href="{{ url_for('manager_schedule', day=day.iso_date) }}">
           <header class="calendar-day-header">
-            <h3>{{ day.weekday }}</h3>
+            <h3>{{ day.weekday_short }}</h3>
             <p>{{ day.display_date }}</p>
           </header>
-
-          <div class="day-shifts">
+          <div class="calendar-shift-list">
             {% for shift in day.shifts %}
-              <form method="post" class="shift-editor">
-                <input type="hidden" name="action" value="assign" />
-                <input type="hidden" name="shift_id" value="{{ shift.id }}" />
-                <p class="shift-time">{{ shift.start_label }} - {{ shift.end_label }}</p>
-                <p class="shift-class">{{ shift.class_name }}</p>
-                <label>
-                  Assigned Employee
-                  <select name="employee_user_id" required>
-                    {% for employee in employees %}
-                      <option value="{{ employee.id }}" {% if employee.id == shift.employee_user_id %}selected{% endif %}>
-                        {{ employee.username }}
-                      </option>
-                    {% endfor %}
-                  </select>
-                </label>
-                <button type="submit">Update Shift</button>
-              </form>
+              <p class="calendar-shift-item">{{ shift.start_label }}-{{ shift.end_label }} {{ shift.class_name }}</p>
             {% else %}
-              <p class="hint">No shifts scheduled.</p>
+              <p class="hint">No shifts</p>
             {% endfor %}
           </div>
+        </a>
+      {% endfor %}
+    {% endfor %}
+  </div>
+</section>
 
-          <form method="post" class="create-shift-form">
+<section class="card">
+  <h3>Selected Day: {{ selected_day.strftime('%A, %b %d, %Y') }}</h3>
+
+  <div class="day-shifts">
+    {% for shift in selected_day_shifts %}
+      <form method="post" class="shift-editor">
+        <input type="hidden" name="action" value="update_shift" />
+        <input type="hidden" name="selected_day" value="{{ selected_day.isoformat() }}" />
+        <input type="hidden" name="shift_id" value="{{ shift.id }}" />
+        <label>
+          Start
+          <input type="time" name="start_time" value="{{ shift.start_label }}" required />
+        </label>
+        <label>
+          End
+          <input type="time" name="end_time" value="{{ shift.end_label }}" required />
+        </label>
+        <label>
+          Class Name
+          <input type="text" name="class_name" value="{{ shift.class_name }}" required />
+        </label>
+        <label>
+          Employee
+          <select name="employee_user_id" required>
+            {% for employee in employees %}
+              <option value="{{ employee.id }}" {% if employee.id == shift.employee_user_id %}selected{% endif %}>
+                {{ employee.username }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">Save Shift</button>
+      </form>
+    {% else %}
+      <p class="hint">No shifts yet for this day.</p>
+    {% endfor %}
+  </div>
+
+  <form method="post" class="create-shift-form">
             <input type="hidden" name="action" value="create" />
-            <input type="hidden" name="shift_date" value="{{ day.iso_date }}" />
-            <h4>Add Shift</h4>
+            <input type="hidden" name="selected_day" value="{{ selected_day.isoformat() }}" />
+            <h4>Add Shift to {{ selected_day.strftime('%b %d') }}</h4>
             <label>
               Start
               <input type="time" name="start_time" required />
@@ -63,10 +89,6 @@
               </select>
             </label>
             <button type="submit">Add Shift</button>
-          </form>
-        </article>
-      {% endfor %}
-    {% endfor %}
-  </div>
+  </form>
 </section>
 {% endblock %}
