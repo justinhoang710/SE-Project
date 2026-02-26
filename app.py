@@ -78,10 +78,15 @@ def hash_password(raw_password: str) -> str:
 
 
 def verify_password(stored_hash: str, candidate: str) -> bool:
+    stored_hash = (stored_hash or "").strip()
     if stored_hash.startswith("sha256$"):
         expected = stored_hash.split("$", 1)[1]
         actual = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
         return hmac.compare_digest(expected, actual)
+    # Backward compatibility: allow raw SHA256 hex without prefix.
+    if len(stored_hash) == 64 and all(ch in "0123456789abcdef" for ch in stored_hash.lower()):
+        actual = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(stored_hash.lower(), actual)
     return hmac.compare_digest(stored_hash, candidate)
 
 
@@ -129,7 +134,7 @@ def login():
         db = get_db()
         cur = db.cursor(dictionary=True)
         cur.execute(
-            "SELECT id, username, password_hash, role FROM users WHERE username = %s",
+            "SELECT id, username, password_hash, role FROM users WHERE LOWER(TRIM(username)) = LOWER(%s)",
             (username,),
         )
         user = cur.fetchone()
