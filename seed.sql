@@ -44,7 +44,7 @@ AND NOT EXISTS (
 
 -- Child class schedule
 INSERT INTO child_schedule (child_id, class_date, start_time, end_time, class_title, instructor_name)
-SELECT c.id, '2026-02-18', '16:00:00', '17:00:00', 'Class 1', 'Test Instructor 1'
+SELECT c.id, '2026-02-18', '16:00:00', '17:00:00', 'Class 1', 'test_employee1'
 FROM children c
 WHERE c.child_name = 'child1'
 AND NOT EXISTS (
@@ -52,12 +52,38 @@ AND NOT EXISTS (
 );
 
 INSERT INTO child_schedule (child_id, class_date, start_time, end_time, class_title, instructor_name)
-SELECT c.id, '2026-02-20', '16:00:00', '17:00:00', 'Class 2', 'Test Instructor 2'
+SELECT c.id, '2026-02-20', '16:00:00', '17:00:00', 'Class 2', 'test_employee2'
 FROM children c
 WHERE c.child_name = 'child1'
 AND NOT EXISTS (
   SELECT 1 FROM child_schedule cs WHERE cs.child_id = c.id AND cs.class_date = '2026-02-20' AND cs.start_time = '16:00:00'
 );
+
+-- Normalize existing schedule labels so rerunning seed updates older data.
+UPDATE shifts s
+JOIN users u ON u.id = s.employee_user_id
+SET s.class_name = CASE
+  WHEN u.username = 'test_employee1' AND s.shift_date = '2026-02-18' AND s.start_time = '16:00:00' THEN 'Class 1'
+  WHEN u.username = 'test_employee1' AND s.shift_date = '2026-02-19' AND s.start_time = '18:00:00' THEN 'Class 2'
+  WHEN u.username = 'test_employee2' AND s.shift_date = '2026-02-18' AND s.start_time = '18:00:00' THEN 'Class 3'
+  ELSE s.class_name
+END
+WHERE u.username IN ('test_employee1', 'test_employee2');
+
+UPDATE child_schedule cs
+JOIN children c ON c.id = cs.child_id
+SET
+  cs.class_title = CASE
+    WHEN cs.class_date = '2026-02-18' AND cs.start_time = '16:00:00' THEN 'Class 1'
+    WHEN cs.class_date = '2026-02-20' AND cs.start_time = '16:00:00' THEN 'Class 2'
+    ELSE cs.class_title
+  END,
+  cs.instructor_name = CASE
+    WHEN cs.class_date = '2026-02-18' AND cs.start_time = '16:00:00' THEN 'test_employee1'
+    WHEN cs.class_date = '2026-02-20' AND cs.start_time = '16:00:00' THEN 'test_employee2'
+    ELSE cs.instructor_name
+  END
+WHERE c.child_name = 'child1';
 
 -- Technique list
 INSERT INTO techniques (technique_name, description, created_by_user_id)
