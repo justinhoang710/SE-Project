@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card narrow">
-  <h2>Register</h2>
+  <h2>Sign-Up for Parents/Students and Staff</h2>
   <form method="post">
     <label>Username
       <input type="text" name="username" minlength="3" required />
@@ -19,11 +19,11 @@
       <select name="role" id="role" required>
         <option value="">Select account type</option>
         <option value="employee">Employee</option>
-        <option value="parent">Parent</option>
+        <option value="parent">Parent/Student</option>
       </select>
     </label>
 
-    <label id="child-name-wrap">Child Name (required for parent)
+    <label id="child-name-wrap">Student Name (required for parent/student sign-up)
       <input type="text" name="child_name" />
     </label>
 

@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>{{ page_title }}</h2>
+  <p>Assign a new skill to a child and mark completion with the checkbox.</p>
+  <form method="post">
+    <label>Child
+      <select name="child_id" required>
+        <option value="">Select child</option>
+        {% for child in children %}
+          <option value="{{ child.id }}">{{ child.child_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>Technique
+      <select name="technique_id" required>
+        <option value="">Select technique</option>
+        {% for t in techniques %}
+          <option value="{{ t.id }}">{{ t.technique_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="checkbox">
+      <input type="checkbox" name="completed" />
+      Completed
+    </label>
+
+    <label>Notes
+      <textarea name="notes" rows="3" placeholder="Optional notes"></textarea>
+    </label>
+
+    <button type="submit">Add Progress</button>
+  </form>
+</section>
+
+{% for child in child_summary %}
+  <section class="card">
+    <h3>{{ child.child_name }}</h3>
+    <p>{{ child.completed_skills }} of {{ child.total_skills }} skills completed ({{ child.progress_percent|int }}%)</p>
+    <div class="progress-track">
+      <div class="progress-fill" style="width: {{ child.progress_percent|int }}%;"></div>
+    </div>
+    <table>
+      <tr><th>Technique</th><th>Completed</th><th>Assigned By</th><th>Assigned At</th><th>Completed At</th><th>Notes</th><th>Action</th></tr>
+      {% for row in child_progress_rows[child.id] %}
+        <tr>
+          <td>{{ row.technique_name }}</td>
+          <td>{{ 'Yes' if row.completed else 'No' }}</td>
+          <td>{{ row.assigned_by }}</td>
+          <td>{{ row.assigned_at }}</td>
+          <td>{{ row.completed_at or '-' }}</td>
+          <td>{{ row.notes or '-' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('toggle_progress', progress_id=row.id) }}">
+              <button type="submit">{{ 'Uncheck' if row.completed else 'Check' }}</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No techniques assigned yet.</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+{% else %}
+  <section class="card"><p>No children found.</p></section>
+{% endfor %}
+{% endblock %}

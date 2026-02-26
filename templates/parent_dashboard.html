@@ -2,12 +2,17 @@
 {% block content %}
 <section class="card">
   <h2>Parent Dashboard</h2>
-  <p>View your child's upcoming class schedule.</p>
+  <p>View your child's schedule and skill progress.</p>
 </section>
 
 {% for child in children %}
   <section class="card">
     <h3>{{ child.child_name }}</h3>
+    <p>{{ child.completed_skills }} of {{ child.total_skills }} skills completed ({{ child.progress_percent|int }}%)</p>
+    <div class="progress-track">
+      <div class="progress-fill" style="width: {{ child.progress_percent|int }}%;"></div>
+    </div>
+    <h4>Schedule</h4>
     <table>
       <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Instructor</th></tr>
       {% for cls in child_schedules[child.id] %}
@@ -20,6 +25,23 @@
         </tr>
       {% else %}
         <tr><td colspan="5">No classes scheduled.</td></tr>
+      {% endfor %}
+    </table>
+
+    <h4>Technique Progress</h4>
+    <table>
+      <tr><th>Technique</th><th>Completed</th><th>Assigned By</th><th>Assigned At</th><th>Completed At</th><th>Notes</th></tr>
+      {% for row in child_progress_rows[child.id] %}
+        <tr>
+          <td>{{ row.technique_name }}</td>
+          <td>{{ 'Yes' if row.completed else 'No' }}</td>
+          <td>{{ row.assigned_by }}</td>
+          <td>{{ row.assigned_at }}</td>
+          <td>{{ row.completed_at or '-' }}</td>
+          <td>{{ row.notes or '-' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No techniques assigned yet.</td></tr>
       {% endfor %}
     </table>
   </section>

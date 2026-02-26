@@ -49,3 +49,27 @@ CREATE TABLE IF NOT EXISTS child_schedule (
   instructor_name VARCHAR(100) NOT NULL,
   FOREIGN KEY (child_id) REFERENCES children(id)
 );
+
+CREATE TABLE IF NOT EXISTS techniques (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  technique_name VARCHAR(120) NOT NULL UNIQUE,
+  description TEXT NOT NULL,
+  created_by_user_id INT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS child_skill_progress (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  child_id INT NOT NULL,
+  technique_id INT NOT NULL,
+  assigned_by_user_id INT NOT NULL,
+  assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed TINYINT(1) NOT NULL DEFAULT 0,
+  completed_at TIMESTAMP NULL,
+  notes TEXT NULL,
+  FOREIGN KEY (child_id) REFERENCES children(id),
+  FOREIGN KEY (technique_id) REFERENCES techniques(id),
+  FOREIGN KEY (assigned_by_user_id) REFERENCES users(id)
+);

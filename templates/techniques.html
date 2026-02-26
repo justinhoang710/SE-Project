@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Karate Techniques</h2>
+  <p>Employees and managers can add techniques. Managers can also edit the list.</p>
+  <form method="post">
+    <label>Technique Name
+      <input type="text" name="technique_name" required />
+    </label>
+    <label>Description
+      <textarea name="description" rows="3" placeholder="Optional"></textarea>
+    </label>
+    <button type="submit">Add Technique</button>
+  </form>
+</section>
+
+<section class="card">
+  <h3>Technique List</h3>
+  <table>
+    <tr><th>Name</th><th>Description</th><th>Active</th><th>Created By</th><th>Created At</th>{% if session.get('role') == 'manager' %}<th>Edit</th>{% endif %}</tr>
+    {% for t in technique_list %}
+      <tr>
+        <td>{{ t.technique_name }}</td>
+        <td>{{ t.description or '-' }}</td>
+        <td>{{ 'Yes' if t.is_active else 'No' }}</td>
+        <td>{{ t.created_by or '-' }}</td>
+        <td>{{ t.created_at }}</td>
+        {% if session.get('role') == 'manager' %}
+          <td>
+            <form method="post" action="{{ url_for('edit_technique', technique_id=t.id) }}">
+              <input type="text" name="technique_name" value="{{ t.technique_name }}" required />
+              <input type="text" name="description" value="{{ t.description or '' }}" />
+              <label class="checkbox">
+                <input type="checkbox" name="is_active" {% if t.is_active %}checked{% endif %} />
+                Active
+              </label>
+              <button type="submit">Save</button>
+            </form>
+          </td>
+        {% endif %}
+      </tr>
+    {% else %}
+      <tr><td colspan="{% if session.get('role') == 'manager' %}6{% else %}5{% endif %}">No techniques added yet.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

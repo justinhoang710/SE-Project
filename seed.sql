@@ -58,3 +58,47 @@ WHERE c.child_name = 'Jamie Modesto'
 AND NOT EXISTS (
   SELECT 1 FROM child_schedule cs WHERE cs.child_id = c.id AND cs.class_date = '2026-02-20' AND cs.start_time = '16:00:00'
 );
+
+-- Technique list
+INSERT INTO techniques (technique_name, description, created_by_user_id)
+SELECT 'Front Kick', 'Basic forward kick with proper chamber and retraction.', u.id
+FROM users u
+WHERE u.username = 'manager1'
+AND NOT EXISTS (SELECT 1 FROM techniques t WHERE t.technique_name = 'Front Kick');
+
+INSERT INTO techniques (technique_name, description, created_by_user_id)
+SELECT 'Low Block', 'Defensive downward block used for beginner forms.', u.id
+FROM users u
+WHERE u.username = 'employee1'
+AND NOT EXISTS (SELECT 1 FROM techniques t WHERE t.technique_name = 'Low Block');
+
+INSERT INTO techniques (technique_name, description, created_by_user_id)
+SELECT 'Horse Stance', 'Stable stance with knees bent and hips level.', u.id
+FROM users u
+WHERE u.username = 'manager1'
+AND NOT EXISTS (SELECT 1 FROM techniques t WHERE t.technique_name = 'Horse Stance');
+
+-- Child progress tracking
+INSERT INTO child_skill_progress (child_id, technique_id, assigned_by_user_id, completed, completed_at, notes)
+SELECT c.id, t.id, u.id, 1, CURRENT_TIMESTAMP, 'Completed with strong balance and form.'
+FROM children c
+JOIN techniques t ON t.technique_name = 'Front Kick'
+JOIN users u ON u.username = 'employee1'
+WHERE c.child_name = 'Jamie Modesto'
+AND NOT EXISTS (
+  SELECT 1
+  FROM child_skill_progress p
+  WHERE p.child_id = c.id AND p.technique_id = t.id
+);
+
+INSERT INTO child_skill_progress (child_id, technique_id, assigned_by_user_id, completed, notes)
+SELECT c.id, t.id, u.id, 0, 'Needs more consistency on guard position.'
+FROM children c
+JOIN techniques t ON t.technique_name = 'Low Block'
+JOIN users u ON u.username = 'manager1'
+WHERE c.child_name = 'Jamie Modesto'
+AND NOT EXISTS (
+  SELECT 1
+  FROM child_skill_progress p
+  WHERE p.child_id = c.id AND p.technique_id = t.id
+);

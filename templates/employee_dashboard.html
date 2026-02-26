@@ -3,6 +3,9 @@
 <section class="card">
   <h2>Employee Dashboard</h2>
   <div class="actions">
+    <a class="button" href="{{ url_for('employee_schedule') }}">Schedule for Staff</a>
+    <a class="button" href="{{ url_for('employee_progress') }}">Progress Screen</a>
+    <a class="button" href="{{ url_for('techniques') }}">Add Techniques</a>
     <a class="button" href="{{ url_for('request_switch') }}">Request Shift Switch</a>
     <a class="button" href="{{ url_for('request_callout') }}">Submit Call-Out</a>
   </div>

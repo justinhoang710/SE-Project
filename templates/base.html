@@ -13,6 +13,9 @@
       <nav>
         <span>Signed in as {{ session['username'] }} ({{ session['role'] }})</span>
         <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        {% if session.get('role') in ['employee', 'manager'] %}
+          <a href="{{ url_for('techniques') }}">Techniques</a>
+        {% endif %}
         <a href="{{ url_for('logout') }}">Logout</a>
       </nav>
       {% endif %}

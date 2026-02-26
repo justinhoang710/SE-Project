@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Schedule for Manager</h2>
+  <table>
+    <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Employee</th></tr>
+    {% for s in all_shifts %}
+      <tr>
+        <td>{{ s.shift_date }}</td>
+        <td>{{ s.start_time }}</td>
+        <td>{{ s.end_time }}</td>
+        <td>{{ s.class_name }}</td>
+        <td>{{ s.employee }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5">No shifts found.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

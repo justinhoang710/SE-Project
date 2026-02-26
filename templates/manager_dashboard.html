@@ -2,6 +2,11 @@
 {% block content %}
 <section class="card">
   <h2>Manager Dashboard</h2>
+  <div class="actions">
+    <a class="button" href="{{ url_for('manager_schedule') }}">Schedule for Manager</a>
+    <a class="button" href="{{ url_for('manager_progress') }}">Child Progress</a>
+    <a class="button" href="{{ url_for('techniques') }}">Edit Technique List</a>
+  </div>
 </section>
 
 <section class="card">

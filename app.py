@@ -14,6 +14,64 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-change-me")
 app.teardown_appcontext(close_db)
 
 
+def _fetch_child_progress_summary(cur, parent_user_id=None):
+    query = """
+        SELECT
+            c.id,
+            c.child_name,
+            COUNT(csp.id) AS total_skills,
+            COALESCE(SUM(CASE WHEN csp.completed = 1 THEN 1 ELSE 0 END), 0) AS completed_skills,
+            ROUND(
+                COALESCE(
+                    SUM(CASE WHEN csp.completed = 1 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(csp.id), 0),
+                    0
+                ),
+                0
+            ) AS progress_percent
+        FROM children c
+        LEFT JOIN child_skill_progress csp ON csp.child_id = c.id
+    """
+    params = ()
+    if parent_user_id is not None:
+        query += " WHERE c.parent_user_id = %s"
+        params = (parent_user_id,)
+
+    query += " GROUP BY c.id, c.child_name ORDER BY c.child_name"
+    cur.execute(query, params)
+    return cur.fetchall()
+
+
+def _fetch_child_progress_rows(cur, child_ids):
+    if not child_ids:
+        return {}
+
+    placeholders = ", ".join(["%s"] * len(child_ids))
+    cur.execute(
+        f"""
+        SELECT
+            csp.id,
+            csp.child_id,
+            csp.completed,
+            csp.assigned_at,
+            csp.completed_at,
+            csp.notes,
+            t.technique_name,
+            u.username AS assigned_by
+        FROM child_skill_progress csp
+        JOIN techniques t ON t.id = csp.technique_id
+        JOIN users u ON u.id = csp.assigned_by_user_id
+        WHERE csp.child_id IN ({placeholders})
+        ORDER BY csp.assigned_at DESC
+        """,
+        tuple(child_ids),
+    )
+    rows = cur.fetchall()
+    grouped = {child_id: [] for child_id in child_ids}
+    for row in rows:
+        grouped[row["child_id"]].append(row)
+    return grouped
+
+
 def hash_password(raw_password: str) -> str:
     digest = hashlib.sha256(raw_password.encode("utf-8")).hexdigest()
     return f"sha256${digest}"
@@ -214,6 +272,33 @@ def employee_dashboard():
     )
 
 
+@app.route("/employee/schedule")
+@login_required
+@role_required("employee")
+def employee_schedule():
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute(
+        """
+        SELECT s.shift_date, s.start_time, s.end_time, s.class_name
+        FROM shifts s
+        WHERE s.employee_user_id = %s
+        ORDER BY s.shift_date, s.start_time
+        """,
+        (session["user_id"],),
+    )
+    my_shifts = cur.fetchall()
+    cur.close()
+    return render_template("employee_schedule.html", my_shifts=my_shifts)
+
+
+@app.route("/employee/progress", methods=["GET", "POST"])
+@login_required
+@role_required("employee")
+def employee_progress():
+    return _staff_progress_screen("Progress Screen for Staff")
+
+
 @app.route("/employee/request-switch", methods=["GET", "POST"])
 @login_required
 @role_required("employee")
@@ -321,6 +406,55 @@ def request_callout():
     return render_template("request_callout.html", my_upcoming_shifts=my_upcoming_shifts)
 
 
+def _staff_progress_screen(page_title):
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+
+    if request.method == "POST":
+        child_id = request.form.get("child_id", type=int)
+        technique_id = request.form.get("technique_id", type=int)
+        notes = request.form.get("notes", "").strip()
+        completed = 1 if request.form.get("completed") == "on" else 0
+
+        cur.execute("SELECT id FROM children WHERE id = %s", (child_id,))
+        child = cur.fetchone()
+        cur.execute("SELECT id FROM techniques WHERE id = %s AND is_active = 1", (technique_id,))
+        technique = cur.fetchone()
+
+        if not child or not technique:
+            flash("Please choose a valid child and active technique.", "error")
+            cur.close()
+            return redirect(request.path)
+
+        cur.execute(
+            """
+            INSERT INTO child_skill_progress
+                (child_id, technique_id, assigned_by_user_id, completed, completed_at, notes)
+            VALUES
+                (%s, %s, %s, %s, CASE WHEN %s = 1 THEN CURRENT_TIMESTAMP ELSE NULL END, %s)
+            """,
+            (child_id, technique_id, session["user_id"], completed, completed, notes or None),
+        )
+        db.commit()
+        flash("Progress record added.", "success")
+
+    cur.execute("SELECT id, child_name FROM children ORDER BY child_name")
+    children = cur.fetchall()
+    cur.execute("SELECT id, technique_name FROM techniques WHERE is_active = 1 ORDER BY technique_name")
+    techniques = cur.fetchall()
+    child_summary = _fetch_child_progress_summary(cur)
+    child_progress_rows = _fetch_child_progress_rows(cur, [c["id"] for c in child_summary])
+    cur.close()
+    return render_template(
+        "progress_screen.html",
+        page_title=page_title,
+        children=children,
+        techniques=techniques,
+        child_summary=child_summary,
+        child_progress_rows=child_progress_rows,
+    )
+
+
 # -----------------------------
 # Manager views
 # -----------------------------
@@ -361,6 +495,143 @@ def manager_dashboard():
     return render_template(
         "manager_dashboard.html", all_shifts=all_shifts, pending_requests=pending_requests
     )
+
+
+@app.route("/manager/schedule")
+@login_required
+@role_required("manager")
+def manager_schedule():
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute(
+        """
+        SELECT s.shift_date, s.start_time, s.end_time, s.class_name, u.username AS employee
+        FROM shifts s
+        JOIN users u ON u.id = s.employee_user_id
+        ORDER BY s.shift_date, s.start_time
+        """
+    )
+    all_shifts = cur.fetchall()
+    cur.close()
+    return render_template("manager_schedule.html", all_shifts=all_shifts)
+
+
+@app.route("/manager/progress", methods=["GET", "POST"])
+@login_required
+@role_required("manager")
+def manager_progress():
+    return _staff_progress_screen("Child Progress Screen (Manager)")
+
+
+@app.route("/techniques", methods=["GET", "POST"])
+@login_required
+@role_required("employee", "manager")
+def techniques():
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+
+    if request.method == "POST":
+        technique_name = request.form.get("technique_name", "").strip()
+        description = request.form.get("description", "").strip()
+
+        if not technique_name:
+            flash("Technique name is required.", "error")
+            cur.close()
+            return redirect(url_for("techniques"))
+
+        try:
+            cur.execute(
+                """
+                INSERT INTO techniques (technique_name, description, created_by_user_id)
+                VALUES (%s, %s, %s)
+                """,
+                (technique_name, description or "", session["user_id"]),
+            )
+            db.commit()
+            flash("Technique added.", "success")
+        except Exception:
+            db.rollback()
+            flash("Technique already exists or could not be added.", "error")
+
+    cur.execute(
+        """
+        SELECT t.id, t.technique_name, t.description, t.is_active, t.created_at, u.username AS created_by
+        FROM techniques t
+        LEFT JOIN users u ON u.id = t.created_by_user_id
+        ORDER BY t.technique_name
+        """
+    )
+    technique_list = cur.fetchall()
+    cur.close()
+    return render_template("techniques.html", technique_list=technique_list)
+
+
+@app.route("/manager/techniques/<int:technique_id>/edit", methods=["POST"])
+@login_required
+@role_required("manager")
+def edit_technique(technique_id):
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+
+    technique_name = request.form.get("technique_name", "").strip()
+    description = request.form.get("description", "").strip()
+    is_active = 1 if request.form.get("is_active") == "on" else 0
+
+    if not technique_name:
+        flash("Technique name is required.", "error")
+        cur.close()
+        return redirect(url_for("techniques"))
+
+    try:
+        cur.execute(
+            """
+            UPDATE techniques
+            SET technique_name = %s, description = %s, is_active = %s
+            WHERE id = %s
+            """,
+            (technique_name, description, is_active, technique_id),
+        )
+        db.commit()
+        flash("Technique updated.", "success")
+    except Exception:
+        db.rollback()
+        flash("Could not update technique.", "error")
+    finally:
+        cur.close()
+
+    return redirect(url_for("techniques"))
+
+
+@app.route("/progress/<int:progress_id>/toggle", methods=["POST"])
+@login_required
+@role_required("employee", "manager")
+def toggle_progress(progress_id):
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute(
+        "SELECT id, completed FROM child_skill_progress WHERE id = %s",
+        (progress_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        flash("Progress item not found.", "error")
+        return redirect(url_for("dashboard"))
+
+    new_completed = 0 if row["completed"] else 1
+    cur.execute(
+        """
+        UPDATE child_skill_progress
+        SET completed = %s,
+            completed_at = CASE WHEN %s = 1 THEN CURRENT_TIMESTAMP ELSE NULL END
+        WHERE id = %s
+        """,
+        (new_completed, new_completed, progress_id),
+    )
+    db.commit()
+    cur.close()
+    flash("Progress updated.", "success")
+    return redirect(request.referrer or url_for("dashboard"))
 
 
 @app.route("/manager/requests/<int:request_id>/<action>", methods=["POST"])
@@ -428,12 +699,7 @@ def parent_dashboard():
     db = get_db()
     cur = db.cursor(dictionary=True)
 
-    cur.execute(
-        "SELECT id, child_name FROM children WHERE parent_user_id = %s ORDER BY child_name",
-        (session["user_id"],),
-    )
-    children = cur.fetchall()
-
+    children = _fetch_child_progress_summary(cur, parent_user_id=session["user_id"])
     child_schedules = {}
     for child in children:
         cur.execute(
@@ -447,9 +713,13 @@ def parent_dashboard():
         )
         child_schedules[child["id"]] = cur.fetchall()
 
+    child_progress_rows = _fetch_child_progress_rows(cur, [c["id"] for c in children])
     cur.close()
     return render_template(
-        "parent_dashboard.html", children=children, child_schedules=child_schedules
+        "parent_dashboard.html",
+        children=children,
+        child_schedules=child_schedules,
+        child_progress_rows=child_progress_rows,
     )
 
 
