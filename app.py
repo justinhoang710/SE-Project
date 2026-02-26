@@ -1,7 +1,7 @@
 import os
 import hashlib
 import hmac
-from datetime import date
+from datetime import date, timedelta
 from functools import wraps
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
@@ -28,6 +28,7 @@ SKILLS_PER_BELT = 5
 
 
 def _apply_belt_progress(children):
+    # Derive current belt and progress-to-next-belt from completed skill counts.
     for child in children:
         completed = int(child.get("completed_skills") or 0)
         earned_levels = completed // SKILLS_PER_BELT
@@ -56,6 +57,7 @@ def _apply_belt_progress(children):
 
 
 def _fetch_child_progress_summary(cur, parent_user_id=None):
+    # Return per-child totals and completion percentage, optionally scoped to one parent.
     query = """
         SELECT
             c.id,
@@ -85,6 +87,7 @@ def _fetch_child_progress_summary(cur, parent_user_id=None):
 
 
 def _fetch_child_progress_rows(cur, child_ids):
+    # Return detailed progress rows grouped by child id for dashboard rendering.
     if not child_ids:
         return {}
 
@@ -116,11 +119,13 @@ def _fetch_child_progress_rows(cur, child_ids):
 
 
 def hash_password(raw_password: str) -> str:
+    # Store passwords as a prefixed SHA256 digest used across auth flows.
     digest = hashlib.sha256(raw_password.encode("utf-8")).hexdigest()
     return f"sha256${digest}"
 
 
 def verify_password(stored_hash: str, candidate: str) -> bool:
+    # Support prefixed SHA256, legacy raw SHA256, and exact-string fallback.
     stored_hash = (stored_hash or "").strip()
     if stored_hash.startswith("sha256$"):
         expected = stored_hash.split("$", 1)[1]
@@ -137,6 +142,7 @@ def verify_password(stored_hash: str, candidate: str) -> bool:
 # Auth helpers
 # -----------------------------
 def login_required(view):
+    # Redirect unauthenticated users to login before protected views run.
     @wraps(view)
     def wrapped(*args, **kwargs):
         if "user_id" not in session:
@@ -148,6 +154,7 @@ def login_required(view):
 
 
 def role_required(*allowed_roles):
+    # Enforce role-based access control for protected routes.
     def decorator(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
@@ -170,6 +177,7 @@ def index():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    # Authenticate user and initialize session state.
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -198,6 +206,7 @@ def login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    # Create employee/parent accounts with validation and optional child record.
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -285,6 +294,7 @@ def dashboard():
 @login_required
 @role_required("employee")
 def employee_dashboard():
+    # Show employee shifts and submitted request history.
     db = get_db()
     cur = db.cursor(dictionary=True)
     cur.execute(
@@ -324,6 +334,7 @@ def employee_dashboard():
 @login_required
 @role_required("employee")
 def employee_schedule():
+    # Render a schedule-only view for the logged-in employee.
     db = get_db()
     cur = db.cursor(dictionary=True)
     cur.execute(
@@ -351,6 +362,7 @@ def employee_progress():
 @login_required
 @role_required("employee")
 def request_switch():
+    # Let an employee request a shift transfer to another employee.
     db = get_db()
     cur = db.cursor(dictionary=True)
 
@@ -409,6 +421,7 @@ def request_switch():
 @login_required
 @role_required("employee")
 def request_callout():
+    # Let an employee submit a call-out request for one of their shifts.
     db = get_db()
     cur = db.cursor(dictionary=True)
 
@@ -455,6 +468,7 @@ def request_callout():
 
 
 def _staff_progress_screen(page_title):
+    # Shared employee/manager child-progress entry and listing screen.
     db = get_db()
     cur = db.cursor(dictionary=True)
 
@@ -510,6 +524,7 @@ def _staff_progress_screen(page_title):
 @login_required
 @role_required("manager")
 def manager_dashboard():
+    # Show all shifts and pending employee requests for manager review.
     db = get_db()
     cur = db.cursor(dictionary=True)
 
@@ -545,29 +560,139 @@ def manager_dashboard():
     )
 
 
-@app.route("/manager/schedule")
+@app.route("/manager/schedule", methods=["GET", "POST"])
 @login_required
 @role_required("manager")
 def manager_schedule():
+    # Calendar editor for next 14 days with shift assignment and creation.
     db = get_db()
     cur = db.cursor(dictionary=True)
+
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+
+        if action == "assign":
+            # Reassign an existing shift to a selected employee.
+            shift_id = request.form.get("shift_id", type=int)
+            employee_id = request.form.get("employee_user_id", type=int)
+
+            if not shift_id or not employee_id:
+                flash("Shift and employee are required.", "error")
+                cur.close()
+                return redirect(url_for("manager_schedule"))
+
+            cur.execute("SELECT id FROM shifts WHERE id = %s", (shift_id,))
+            shift = cur.fetchone()
+            if not shift:
+                flash("Shift not found.", "error")
+                cur.close()
+                return redirect(url_for("manager_schedule"))
+
+            cur.execute("SELECT id FROM users WHERE id = %s AND role = 'employee'", (employee_id,))
+            employee = cur.fetchone()
+            if not employee:
+                flash("Employee not found.", "error")
+                cur.close()
+                return redirect(url_for("manager_schedule"))
+
+            cur.execute(
+                "UPDATE shifts SET employee_user_id = %s WHERE id = %s",
+                (employee_id, shift_id),
+            )
+            db.commit()
+            flash("Shift assignment updated.", "success")
+
+        elif action == "create":
+            # Create a new shift on the chosen calendar day.
+            shift_date = request.form.get("shift_date", "").strip()
+            start_time = request.form.get("start_time", "").strip()
+            end_time = request.form.get("end_time", "").strip()
+            class_name = request.form.get("class_name", "").strip()
+            employee_id = request.form.get("employee_user_id", type=int)
+
+            if not (shift_date and start_time and end_time and class_name and employee_id):
+                flash("All fields are required to create a shift.", "error")
+                cur.close()
+                return redirect(url_for("manager_schedule"))
+
+            cur.execute("SELECT id FROM users WHERE id = %s AND role = 'employee'", (employee_id,))
+            employee = cur.fetchone()
+            if not employee:
+                flash("Employee not found.", "error")
+                cur.close()
+                return redirect(url_for("manager_schedule"))
+
+            cur.execute(
+                """
+                INSERT INTO shifts (employee_user_id, shift_date, start_time, end_time, class_name)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (employee_id, shift_date, start_time, end_time, class_name),
+            )
+            db.commit()
+            flash("Shift created.", "success")
+
+    start_date = date.today()
+    end_date = start_date + timedelta(days=13)
+
+    cur.execute(
+        "SELECT id, username FROM users WHERE role = 'employee' ORDER BY username"
+    )
+    employees = cur.fetchall()
+
     cur.execute(
         """
-        SELECT s.shift_date, s.start_time, s.end_time, s.class_name, u.username AS employee
+        SELECT
+            s.id,
+            s.employee_user_id,
+            s.shift_date,
+            s.start_time,
+            s.end_time,
+            s.class_name,
+            TIME_FORMAT(s.start_time, '%%H:%%i') AS start_label,
+            TIME_FORMAT(s.end_time, '%%H:%%i') AS end_label,
+            u.username AS employee
         FROM shifts s
         JOIN users u ON u.id = s.employee_user_id
+        WHERE s.shift_date BETWEEN %s AND %s
         ORDER BY s.shift_date, s.start_time
-        """
+        """,
+        (start_date, end_date),
     )
-    all_shifts = cur.fetchall()
+    shifts = cur.fetchall()
     cur.close()
-    return render_template("manager_schedule.html", all_shifts=all_shifts)
+
+    shifts_by_date = {}
+    for shift in shifts:
+        key = shift["shift_date"].isoformat()
+        shifts_by_date.setdefault(key, []).append(shift)
+
+    days = []
+    for offset in range(14):
+        day_value = start_date + timedelta(days=offset)
+        days.append(
+            {
+                "iso_date": day_value.isoformat(),
+                "display_date": day_value.strftime("%b %d"),
+                "weekday": day_value.strftime("%A"),
+                "shifts": shifts_by_date.get(day_value.isoformat(), []),
+            }
+        )
+
+    calendar_weeks = [days[:7], days[7:]]
+
+    return render_template(
+        "manager_schedule.html",
+        calendar_weeks=calendar_weeks,
+        employees=employees,
+    )
 
 
 @app.route("/manager/progress", methods=["GET", "POST"])
 @login_required
 @role_required("manager")
 def manager_progress():
+    # Reuse shared progress page with manager-specific title text.
     return _staff_progress_screen("Child Progress Screen (Manager)")
 
 
@@ -575,6 +700,7 @@ def manager_progress():
 @login_required
 @role_required("employee", "manager")
 def techniques():
+    # Manage techniques list (add for staff, view/edit state for manager).
     db = get_db()
     cur = db.cursor(dictionary=True)
 
@@ -618,6 +744,7 @@ def techniques():
 @login_required
 @role_required("manager")
 def edit_technique(technique_id):
+    # Update technique metadata and active/inactive state.
     db = get_db()
     cur = db.cursor(dictionary=True)
 
@@ -654,6 +781,7 @@ def edit_technique(technique_id):
 @login_required
 @role_required("employee", "manager")
 def toggle_progress(progress_id):
+    # Flip completion state for a single assigned child technique.
     db = get_db()
     cur = db.cursor(dictionary=True)
     cur.execute(
@@ -686,6 +814,7 @@ def toggle_progress(progress_id):
 @login_required
 @role_required("manager")
 def process_request(request_id, action):
+    # Approve/reject switch and call-out requests, applying shift changes on approval.
     if action not in {"approve", "reject"}:
         flash("Invalid action.", "error")
         return redirect(url_for("manager_dashboard"))
@@ -744,6 +873,7 @@ def process_request(request_id, action):
 @login_required
 @role_required("parent")
 def parent_dashboard():
+    # Show parent-facing child progress summaries and class schedules.
     db = get_db()
     cur = db.cursor(dictionary=True)
 

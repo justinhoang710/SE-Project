@@ -1,12 +1,37 @@
 USE karate_academy;
 
+-- Rename older demo usernames to the simplified format when possible.
+UPDATE users u
+LEFT JOIN users x ON x.username = 'manager1'
+SET u.username = 'manager1'
+WHERE u.username = 'test_manager1'
+AND x.id IS NULL;
+
+UPDATE users u
+LEFT JOIN users x ON x.username = 'employee1'
+SET u.username = 'employee1'
+WHERE u.username = 'test_employee1'
+AND x.id IS NULL;
+
+UPDATE users u
+LEFT JOIN users x ON x.username = 'employee2'
+SET u.username = 'employee2'
+WHERE u.username = 'test_employee2'
+AND x.id IS NULL;
+
+UPDATE users u
+LEFT JOIN users x ON x.username = 'parent1'
+SET u.username = 'parent1'
+WHERE u.username = 'test_parent1'
+AND x.id IS NULL;
+
 -- Demo users
 INSERT INTO users (username, password_hash, role)
 VALUES
-  ('test_manager1', 'sha256$866485796cfa8d7c0cf7111640205b83076433547577511d81f8030ae99ecea5', 'manager'),
-  ('test_employee1', 'sha256$5b2f8e27e2e5b4081c03ce70b288c87bd1263140cbd1bd9ae078123509b7caff', 'employee'),
-  ('test_employee2', 'sha256$5b2f8e27e2e5b4081c03ce70b288c87bd1263140cbd1bd9ae078123509b7caff', 'employee'),
-  ('test_parent1', 'sha256$82e3edf5f5f3a46b5f94579b61817fd9a1f356adcef5ee22da3b96ef775c4860', 'parent')
+  ('manager1', 'sha256$866485796cfa8d7c0cf7111640205b83076433547577511d81f8030ae99ecea5', 'manager'),
+  ('employee1', 'sha256$5b2f8e27e2e5b4081c03ce70b288c87bd1263140cbd1bd9ae078123509b7caff', 'employee'),
+  ('employee2', 'sha256$5b2f8e27e2e5b4081c03ce70b288c87bd1263140cbd1bd9ae078123509b7caff', 'employee'),
+  ('parent1', 'sha256$82e3edf5f5f3a46b5f94579b61817fd9a1f356adcef5ee22da3b96ef775c4860', 'parent')
 ON DUPLICATE KEY UPDATE
   password_hash = VALUES(password_hash),
   role = VALUES(role);
@@ -15,7 +40,7 @@ ON DUPLICATE KEY UPDATE
 INSERT INTO children (child_name, parent_user_id)
 SELECT 'child1', u.id
 FROM users u
-WHERE u.username = 'test_parent1'
+WHERE u.username = 'parent1'
 AND NOT EXISTS (
   SELECT 1 FROM children c WHERE c.child_name = 'child1' AND c.parent_user_id = u.id
 );
@@ -23,28 +48,28 @@ AND NOT EXISTS (
 -- Employee shifts
 INSERT INTO shifts (employee_user_id, shift_date, start_time, end_time, class_name)
 SELECT u.id, '2026-02-18', '16:00:00', '18:00:00', 'Class 1'
-FROM users u WHERE u.username = 'test_employee1'
+FROM users u WHERE u.username = 'employee1'
 AND NOT EXISTS (
   SELECT 1 FROM shifts s WHERE s.employee_user_id = u.id AND s.shift_date = '2026-02-18' AND s.start_time = '16:00:00'
 );
 
 INSERT INTO shifts (employee_user_id, shift_date, start_time, end_time, class_name)
 SELECT u.id, '2026-02-19', '18:00:00', '20:00:00', 'Class 2'
-FROM users u WHERE u.username = 'test_employee1'
+FROM users u WHERE u.username = 'employee1'
 AND NOT EXISTS (
   SELECT 1 FROM shifts s WHERE s.employee_user_id = u.id AND s.shift_date = '2026-02-19' AND s.start_time = '18:00:00'
 );
 
 INSERT INTO shifts (employee_user_id, shift_date, start_time, end_time, class_name)
 SELECT u.id, '2026-02-18', '18:00:00', '20:00:00', 'Class 3'
-FROM users u WHERE u.username = 'test_employee2'
+FROM users u WHERE u.username = 'employee2'
 AND NOT EXISTS (
   SELECT 1 FROM shifts s WHERE s.employee_user_id = u.id AND s.shift_date = '2026-02-18' AND s.start_time = '18:00:00'
 );
 
 -- Child class schedule
 INSERT INTO child_schedule (child_id, class_date, start_time, end_time, class_title, instructor_name)
-SELECT c.id, '2026-02-18', '16:00:00', '17:00:00', 'Class 1', 'test_employee1'
+SELECT c.id, '2026-02-18', '16:00:00', '17:00:00', 'Class 1', 'employee1'
 FROM children c
 WHERE c.child_name = 'child1'
 AND NOT EXISTS (
@@ -52,7 +77,7 @@ AND NOT EXISTS (
 );
 
 INSERT INTO child_schedule (child_id, class_date, start_time, end_time, class_title, instructor_name)
-SELECT c.id, '2026-02-20', '16:00:00', '17:00:00', 'Class 2', 'test_employee2'
+SELECT c.id, '2026-02-20', '16:00:00', '17:00:00', 'Class 2', 'employee2'
 FROM children c
 WHERE c.child_name = 'child1'
 AND NOT EXISTS (
@@ -63,12 +88,12 @@ AND NOT EXISTS (
 UPDATE shifts s
 JOIN users u ON u.id = s.employee_user_id
 SET s.class_name = CASE
-  WHEN u.username = 'test_employee1' AND s.shift_date = '2026-02-18' AND s.start_time = '16:00:00' THEN 'Class 1'
-  WHEN u.username = 'test_employee1' AND s.shift_date = '2026-02-19' AND s.start_time = '18:00:00' THEN 'Class 2'
-  WHEN u.username = 'test_employee2' AND s.shift_date = '2026-02-18' AND s.start_time = '18:00:00' THEN 'Class 3'
+  WHEN u.username = 'employee1' AND s.shift_date = '2026-02-18' AND s.start_time = '16:00:00' THEN 'Class 1'
+  WHEN u.username = 'employee1' AND s.shift_date = '2026-02-19' AND s.start_time = '18:00:00' THEN 'Class 2'
+  WHEN u.username = 'employee2' AND s.shift_date = '2026-02-18' AND s.start_time = '18:00:00' THEN 'Class 3'
   ELSE s.class_name
 END
-WHERE u.username IN ('test_employee1', 'test_employee2');
+WHERE u.username IN ('employee1', 'employee2');
 
 UPDATE child_schedule cs
 JOIN children c ON c.id = cs.child_id
@@ -79,8 +104,8 @@ SET
     ELSE cs.class_title
   END,
   cs.instructor_name = CASE
-    WHEN cs.class_date = '2026-02-18' AND cs.start_time = '16:00:00' THEN 'test_employee1'
-    WHEN cs.class_date = '2026-02-20' AND cs.start_time = '16:00:00' THEN 'test_employee2'
+    WHEN cs.class_date = '2026-02-18' AND cs.start_time = '16:00:00' THEN 'employee1'
+    WHEN cs.class_date = '2026-02-20' AND cs.start_time = '16:00:00' THEN 'employee2'
     ELSE cs.instructor_name
   END
 WHERE c.child_name = 'child1';
@@ -89,19 +114,19 @@ WHERE c.child_name = 'child1';
 INSERT INTO techniques (technique_name, description, created_by_user_id)
 SELECT 'Technique 1', 'Test technique 1 description.', u.id
 FROM users u
-WHERE u.username = 'test_manager1'
+WHERE u.username = 'manager1'
 AND NOT EXISTS (SELECT 1 FROM techniques t WHERE t.technique_name = 'Technique 1');
 
 INSERT INTO techniques (technique_name, description, created_by_user_id)
 SELECT 'Technique 2', 'Test technique 2 description.', u.id
 FROM users u
-WHERE u.username = 'test_employee1'
+WHERE u.username = 'employee1'
 AND NOT EXISTS (SELECT 1 FROM techniques t WHERE t.technique_name = 'Technique 2');
 
 INSERT INTO techniques (technique_name, description, created_by_user_id)
 SELECT 'Technique 3', 'Test technique 3 description.', u.id
 FROM users u
-WHERE u.username = 'test_manager1'
+WHERE u.username = 'manager1'
 AND NOT EXISTS (SELECT 1 FROM techniques t WHERE t.technique_name = 'Technique 3');
 
 -- Child progress tracking
@@ -109,7 +134,7 @@ INSERT INTO child_skill_progress (child_id, technique_id, assigned_by_user_id, c
 SELECT c.id, t.id, u.id, 1, CURRENT_TIMESTAMP, 'Test note 1.'
 FROM children c
 JOIN techniques t ON t.technique_name = 'Technique 1'
-JOIN users u ON u.username = 'test_employee1'
+JOIN users u ON u.username = 'employee1'
 WHERE c.child_name = 'child1'
 AND NOT EXISTS (
   SELECT 1
@@ -121,7 +146,7 @@ INSERT INTO child_skill_progress (child_id, technique_id, assigned_by_user_id, c
 SELECT c.id, t.id, u.id, 0, 'Test note 2.'
 FROM children c
 JOIN techniques t ON t.technique_name = 'Technique 2'
-JOIN users u ON u.username = 'test_manager1'
+JOIN users u ON u.username = 'manager1'
 WHERE c.child_name = 'child1'
 AND NOT EXISTS (
   SELECT 1

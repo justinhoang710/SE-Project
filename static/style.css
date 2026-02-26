@@ -166,3 +166,62 @@ td {
   align-items: center;
   gap: 8px;
 }
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.calendar-day {
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.calendar-day-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.calendar-day-header p {
+  margin: 4px 0 10px;
+  color: #4b5563;
+  font-size: 0.9rem;
+}
+
+.day-shifts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.shift-editor {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+  gap: 8px;
+}
+
+.shift-time {
+  margin: 0;
+  font-weight: 600;
+}
+
+.shift-class {
+  margin: 0;
+  color: #374151;
+}
+
+.create-shift-form {
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 10px;
+}
+
+.create-shift-form h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}

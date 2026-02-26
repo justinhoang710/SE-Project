@@ -43,10 +43,10 @@ New users can register from the login page (`/register`).
 
 ## Demo logins
 
-- Manager: `test_manager1` / `manager123`
-- Employee: `test_employee1` / `employee123`
-- Employee: `test_employee2` / `employee123`
-- Parent: `test_parent1` / `parent123`
+- Manager: `manager1` / `manager123`
+- Employee: `employee1` / `employee123`
+- Employee: `employee2` / `employee123`
+- Parent: `parent1` / `parent123`
 
 ## Notes
 
