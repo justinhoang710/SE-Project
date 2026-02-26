@@ -13,6 +13,47 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-change-me")
 app.teardown_appcontext(close_db)
 
+BELT_SEQUENCE = [
+    "White Belt",
+    "Yellow Belt",
+    "Orange Belt",
+    "Green Belt",
+    "Blue Belt",
+    "Purple Belt",
+    "Brown Belt",
+    "Red Belt",
+    "Black Belt",
+]
+SKILLS_PER_BELT = 5
+
+
+def _apply_belt_progress(children):
+    for child in children:
+        completed = int(child.get("completed_skills") or 0)
+        earned_levels = completed // SKILLS_PER_BELT
+
+        # Cap at black belt (final belt in sequence).
+        current_belt_idx = min(earned_levels, len(BELT_SEQUENCE) - 1)
+        current_belt = BELT_SEQUENCE[current_belt_idx]
+
+        if current_belt_idx == len(BELT_SEQUENCE) - 1:
+            child["next_belt"] = "Mastery Track"
+            child["belt_progress_count"] = SKILLS_PER_BELT
+            child["belt_progress_percent"] = 100
+            child["skills_needed_for_next_belt"] = 0
+        else:
+            progress_in_current_cycle = completed % SKILLS_PER_BELT
+            child["next_belt"] = BELT_SEQUENCE[current_belt_idx + 1]
+            child["belt_progress_count"] = progress_in_current_cycle
+            child["belt_progress_percent"] = round(
+                (progress_in_current_cycle * 100) / SKILLS_PER_BELT
+            )
+            child["skills_needed_for_next_belt"] = (
+                SKILLS_PER_BELT - progress_in_current_cycle
+            )
+
+        child["current_belt"] = current_belt
+
 
 def _fetch_child_progress_summary(cur, parent_user_id=None):
     query = """
@@ -38,7 +79,9 @@ def _fetch_child_progress_summary(cur, parent_user_id=None):
 
     query += " GROUP BY c.id, c.child_name ORDER BY c.child_name"
     cur.execute(query, params)
-    return cur.fetchall()
+    children = cur.fetchall()
+    _apply_belt_progress(children)
+    return children
 
 
 def _fetch_child_progress_rows(cur, child_ids):

@@ -8,9 +8,16 @@
 {% for child in children %}
   <section class="card">
     <h3>{{ child.child_name }}</h3>
-    <p>{{ child.completed_skills }} of {{ child.total_skills }} skills completed ({{ child.progress_percent|int }}%)</p>
+    <p>
+      Current Belt: <strong>{{ child.current_belt }}</strong><br />
+      Next Belt: <strong>{{ child.next_belt }}</strong><br />
+      Progress to Next Belt: {{ child.belt_progress_count }} / 5 skills ({{ child.belt_progress_percent|int }}%)
+      {% if child.skills_needed_for_next_belt > 0 %}
+        - {{ child.skills_needed_for_next_belt }} more to advance
+      {% endif %}
+    </p>
     <div class="progress-track">
-      <div class="progress-fill" style="width: {{ child.progress_percent|int }}%;"></div>
+      <div class="progress-fill" style="width: {{ child.belt_progress_percent|int }}%;"></div>
     </div>
     <h4>Schedule</h4>
     <table>
