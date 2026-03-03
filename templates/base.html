@@ -15,6 +15,15 @@
         <a href="{{ url_for('dashboard') }}">Dashboard</a>
         {% if session.get('role') in ['employee', 'manager'] %}
           <a href="{{ url_for('techniques') }}">Techniques</a>
+          {% if session.get('role') == 'employee' %}
+            <a href="{{ url_for('employee_attendance') }}">Attendance</a>
+          {% elif session.get('role') == 'manager' %}
+            <a href="{{ url_for('manager_attendance') }}">Attendance</a>
+          {% endif %}
+        {% endif %}
+        {% if session.get('role') == 'manager' %}
+          <a href="{{ url_for('manager_enroll') }}">Enroll</a>
+          <a href="{{ url_for('manager_classes') }}">Class Signup Schedule</a>
         {% endif %}
         <a href="{{ url_for('logout') }}">Logout</a>
       </nav>

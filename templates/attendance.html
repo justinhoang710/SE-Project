@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>{{ page_title }}</h2>
+  <p>Roster view: mark each student present/absent and edit techniques per student directly in this tab. Mark All Present is still available.</p>
+</section>
+
+<section class="card">
+  <h3>Select Class</h3>
+  <form method="get">
+    <label>Current Class
+      <select name="class_ref" onchange="this.form.submit()" required>
+        {% for cls in current_classes %}
+          <option value="{{ cls.class_ref }}" {% if cls.class_ref == selected_class_ref %}selected{% endif %}>
+            {{ cls.class_date }} {{ cls.start_label }}-{{ cls.end_label }} {{ cls.class_name }} ({{ cls.enrolled_count }} enrolled)
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  {% if selected_class_info %}
+    <p class="hint">Selected: {{ selected_class_info.class_date }} {{ selected_class_info.start_label }}-{{ selected_class_info.end_label }} {{ selected_class_info.class_name }}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h3>Attendance + End Of Class Techniques</h3>
+  <form method="post" id="attendance-form">
+    <input type="hidden" name="class_ref" value="{{ selected_class_ref }}" />
+
+    <div class="actions">
+      <button type="button" id="mark-all-present">Mark All Present</button>
+      <button type="button" id="clear-all-present" class="danger">Clear All (All Absent)</button>
+      <button type="submit" name="action" value="save_attendance">Save Attendance</button>
+      <button type="submit" name="action" value="close_and_apply">End Class + Apply Per-Student Techniques</button>
+    </div>
+
+    <table>
+      <tr>
+        <th>Present</th>
+        <th>Student</th>
+        <th>Track</th>
+        <th>Belt</th>
+        <th>Progress</th>
+        <th>Techniques For This Student</th>
+        <th>Learned Increment</th>
+      </tr>
+      {% for child in roster_students %}
+        <tr>
+          <td>
+            <label class="checkbox">
+              <input type="checkbox" class="present-checkbox" name="present_child_ids" value="{{ child.id }}" />
+              Present
+            </label>
+          </td>
+          <td>{{ child.child_name }}</td>
+          <td>{{ child.program_track|title }}</td>
+          <td>{{ child.current_belt }}</td>
+          <td>{{ child.belt_progress_count }} / {{ child.total_skills }}</td>
+          <td>
+            <select name="technique_ids_{{ child.id }}" multiple size="5" class="student-techniques" data-track="{{ child.program_track }}" data-belt="{{ child.current_belt }}">
+              {% for t in active_techniques %}
+                <option value="{{ t.id }}" data-track="{{ t.program_track }}" data-belt="{{ t.belt_name }}">
+                  {{ t.technique_name }} ({{ t.program_track|title }} - {{ t.belt_name }})
+                </option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <select name="learned_increment_{{ child.id }}">
+              <option value="1">+1</option>
+              <option value="2">+2</option>
+              <option value="3">+3</option>
+            </select>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No students enrolled in this class.</td></tr>
+      {% endfor %}
+    </table>
+  </form>
+</section>
+
+<script>
+  const presentCheckboxes = document.querySelectorAll('.present-checkbox');
+  const markAllPresentBtn = document.getElementById('mark-all-present');
+  const clearAllPresentBtn = document.getElementById('clear-all-present');
+  const perStudentTechniqueSelects = document.querySelectorAll('.student-techniques');
+
+  const filterTechniquesByStudent = () => {
+    perStudentTechniqueSelects.forEach((selectEl) => {
+      const studentTrack = selectEl.dataset.track;
+      const studentBelt = selectEl.dataset.belt;
+      Array.from(selectEl.options).forEach((option) => {
+        option.hidden = !(option.dataset.track === studentTrack && option.dataset.belt === studentBelt);
+      });
+    });
+  };
+
+  markAllPresentBtn?.addEventListener('click', () => {
+    presentCheckboxes.forEach((cb) => {
+      cb.checked = true;
+    });
+  });
+
+  clearAllPresentBtn?.addEventListener('click', () => {
+    presentCheckboxes.forEach((cb) => {
+      cb.checked = false;
+    });
+  });
+
+  filterTechniquesByStudent();
+</script>
+{% endblock %}

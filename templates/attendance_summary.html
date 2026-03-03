@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Attendance Saved</h2>
+  <p>Everything is saved for {{ session_row.class_date }} {{ session_row.start_label }}-{{ session_row.end_label }} {{ session_row.class_name }}.</p>
+  <p class="hint">Saved by {{ session_row.staff_username }} at {{ session_row.created_at }}</p>
+</section>
+
+<section class="card">
+  <h3>Class Summary</h3>
+  <table>
+    <tr><th>Student</th><th>Track</th><th>Belt</th><th>Present</th><th>Techniques Learned In Class</th></tr>
+    {% for student in students %}
+      <tr>
+        <td>{{ student.child_name }}</td>
+        <td>{{ student.program_track|title }}</td>
+        <td>{{ student.current_belt }}</td>
+        <td>{{ 'Yes' if student.is_present else 'No' }}</td>
+        <td>
+          {% if student.techniques %}
+            {% for technique in student.techniques %}
+              <div>{{ technique.technique_name }} ({{ technique.program_track|title }} - {{ technique.belt_name }}) +{{ technique.learned_increment }}</div>
+            {% endfor %}
+          {% else %}
+            -
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5">No students found for this class session.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<div id="saved-modal" class="modal-overlay">
+  <div class="modal-card">
+    <h3>Everything Is Saved</h3>
+    <p>Choose the next step.</p>
+    <div class="actions">
+      <a class="button" href="{{ next_class_url }}">Switch To Next Class</a>
+      <a class="button" href="{{ url_for('dashboard') }}">Go To Home Page</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  const savedModal = document.getElementById('saved-modal');
+  savedModal?.classList.remove('hidden');
+</script>
+{% endblock %}

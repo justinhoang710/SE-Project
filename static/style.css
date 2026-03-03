@@ -252,3 +252,64 @@ td {
   margin: 0 0 8px;
   font-size: 0.95rem;
 }
+
+.hidden {
+  display: none;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal-card {
+  width: min(92vw, 440px);
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.student-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.student-tile {
+  text-align: left;
+  background: #f8fafc;
+  color: #111827;
+  border: 1px solid #cbd5e1;
+  min-height: 95px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.student-tile.selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+  background: #eff6ff;
+}
+
+.attendance-state {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #b91c1c;
+}
+
+.student-tile.selected .attendance-state {
+  color: #166534;
+}

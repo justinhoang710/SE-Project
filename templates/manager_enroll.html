@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Enroll Students Into Class</h2>
+  <p>Choose a class and add students to its roster. These students will appear in Attendance.</p>
+
+  <form method="get">
+    <label>Class
+      <select name="offering_id" onchange="this.form.submit()" required>
+        {% for cls in offerings %}
+          <option value="{{ cls.id }}" {% if cls.id == selected_offering_id %}selected{% endif %}>
+            {{ cls.class_date }} {{ cls.start_label }}-{{ cls.end_label }} {{ cls.class_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+
+  <form method="post">
+    <input type="hidden" name="offering_id" value="{{ selected_offering_id or '' }}" />
+    <label>Students
+      <select name="child_ids" multiple size="10" required>
+        {% for child in all_students %}
+          <option value="{{ child.id }}" {% if child.id in enrolled_ids %}disabled{% endif %}>
+            {{ child.child_name }} ({{ child.program_track|title }} - {{ child.current_belt }}) - Parent: {{ child.parent_username }}
+            {% if child.id in enrolled_ids %}(already enrolled){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Add Selected Students To Class</button>
+  </form>
+</section>
+
+<section class="card">
+  <h3>Selected Class Roster</h3>
+  <table>
+    <tr><th>Student</th><th>Track</th><th>Belt</th></tr>
+    {% for child in selected_roster %}
+      <tr>
+        <td>{{ child.child_name }}</td>
+        <td>{{ child.program_track|title }}</td>
+        <td>{{ child.current_belt }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="3">No students enrolled in this class yet.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h3>Class Roster Counts</h3>
+  <table>
+    <tr><th>Date</th><th>Time</th><th>Class</th><th>Enrolled Students</th></tr>
+    {% for cls in class_roster_counts %}
+      <tr>
+        <td>{{ cls.class_date }}</td>
+        <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
+        <td>{{ cls.class_name }}</td>
+        <td>{{ cls.enrolled_count }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4">No classes available.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

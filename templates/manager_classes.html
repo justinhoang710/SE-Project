@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Class Signup Schedule</h2>
+  <p>These classes appear on the parent side for signup.</p>
+  <form method="post">
+    <label>Class Name
+      <input type="text" name="class_name" required />
+    </label>
+    <label>Date
+      <input type="date" name="class_date" required />
+    </label>
+    <label>Start Time
+      <input type="time" name="start_time" required />
+    </label>
+    <label>End Time
+      <input type="time" name="end_time" required />
+    </label>
+    <label>Instructor (optional)
+      <select name="instructor_user_id">
+        <option value="">None</option>
+        {% for employee in employees %}
+          <option value="{{ employee.id }}">{{ employee.username }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" id="is-recurring-weekly" name="is_recurring_weekly" />
+      Repeat weekly (same weekday/time)
+    </label>
+    <label id="recurrence-end-wrap" class="hidden">Repeat Until
+      <input type="date" id="recurrence-end-date" name="recurrence_end_date" />
+    </label>
+    <button type="submit">Add Class Offering</button>
+  </form>
+</section>
+
+<section class="card">
+  <h3>Loaded Class Offerings</h3>
+  <table>
+    <tr><th>Date</th><th>Time</th><th>Class Name</th><th>Instructor</th></tr>
+    {% for cls in offerings %}
+      <tr>
+        <td>{{ cls.class_date }}</td>
+        <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
+        <td>{{ cls.class_name }}</td>
+        <td>{{ cls.instructor_name or '-' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4">No class offerings yet.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<script>
+  const recurringCheckbox = document.getElementById('is-recurring-weekly');
+  const recurrenceEndWrap = document.getElementById('recurrence-end-wrap');
+  const recurrenceEndInput = document.getElementById('recurrence-end-date');
+
+  const syncRecurringVisibility = () => {
+    const enabled = recurringCheckbox?.checked;
+    if (!recurrenceEndWrap || !recurrenceEndInput) return;
+    recurrenceEndWrap.classList.toggle('hidden', !enabled);
+    recurrenceEndInput.required = !!enabled;
+  };
+
+  recurringCheckbox?.addEventListener('change', syncRecurringVisibility);
+  syncRecurringVisibility();
+</script>
+{% endblock %}

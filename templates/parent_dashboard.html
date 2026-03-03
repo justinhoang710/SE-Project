@@ -44,13 +44,39 @@
   </table>
 </section>
 
+<section class="card">
+  <h3>Class Signup</h3>
+  <p>Weekly limit: {{ max_classes_per_week }} classes per student.</p>
+  <table>
+    <tr><th>Date</th><th>Time</th><th>Class</th><th>Instructor</th><th>Signup</th></tr>
+    {% for cls in signup_classes %}
+      <tr>
+        <td>{{ cls.class_date }}</td>
+        <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
+        <td>{{ cls.class_name }}</td>
+        <td>{{ cls.instructor_name or '-' }}</td>
+        <td>
+          {% for child in children %}
+            <form class="inline" method="post" action="{{ url_for('parent_signup', offering_id=cls.id, child_id=child.id) }}">
+              <button type="submit">{{ child.child_name }}</button>
+            </form>
+          {% endfor %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5">No class offerings loaded yet.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
 {% for child in children %}
   <section class="card">
     <h3>{{ child.child_name }}</h3>
     <p>
+      Track: <strong>{{ child.program_track|title }}</strong><br />
       Current Belt: <strong>{{ child.current_belt }}</strong><br />
       Next Belt: <strong>{{ child.next_belt }}</strong><br />
-      Progress to Next Belt: {{ child.belt_progress_count }} / 5 skills ({{ child.belt_progress_percent|int }}%)
+      Progress to Next Belt: {{ child.belt_progress_count }} / {{ child.total_skills }} skills ({{ child.belt_progress_percent|int }}%)
       {% if child.skills_needed_for_next_belt > 0 %}
         - {{ child.skills_needed_for_next_belt }} more to advance
       {% endif %}
@@ -76,10 +102,12 @@
 
     <h4>Technique Progress</h4>
     <table>
-      <tr><th>Technique</th><th>Completed</th><th>Assigned By</th><th>Assigned At</th><th>Completed At</th><th>Notes</th></tr>
+      <tr><th>Technique</th><th>Belt</th><th>Learned</th><th>Completed</th><th>Assigned By</th><th>Assigned At</th><th>Completed At</th><th>Notes</th></tr>
       {% for row in child_progress_rows[child.id] %}
         <tr>
           <td>{{ row.technique_name }}</td>
+          <td>{{ row.program_track|title }} - {{ row.belt_name }}</td>
+          <td>{{ row.learned_count }} / 3</td>
           <td>{{ 'Yes' if row.completed else 'No' }}</td>
           <td>{{ row.assigned_by }}</td>
           <td>{{ row.assigned_at }}</td>
@@ -87,7 +115,7 @@
           <td>{{ row.notes or '-' }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="6">No techniques assigned yet.</td></tr>
+        <tr><td colspan="8">No techniques assigned yet.</td></tr>
       {% endfor %}
     </table>
   </section>
