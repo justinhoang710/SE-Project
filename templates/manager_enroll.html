@@ -18,16 +18,62 @@
 
   <form method="post">
     <input type="hidden" name="offering_id" value="{{ selected_offering_id or '' }}" />
-    <label>Students
-      <select name="child_ids" multiple size="10" required>
-        {% for child in all_students %}
-          <option value="{{ child.id }}" {% if child.id in enrolled_ids %}disabled{% endif %}>
-            {{ child.child_name }} ({{ child.program_track|title }} - {{ child.current_belt }}) - Parent: {{ child.parent_username }}
-            {% if child.id in enrolled_ids %}(already enrolled){% endif %}
-          </option>
-        {% endfor %}
-      </select>
-    </label>
+    <label>Students</label>
+    <p class="hint">Click tiles to highlight/select students to enroll.</p>
+    <div class="enroll-divider">
+      <h4>Child Classes</h4>
+      <p class="hint">Track: Child, belt level shown on each student.</p>
+    </div>
+    <div class="student-tile-grid enroll-student-grid">
+      {% for child in all_students if child.program_track == 'kid' %}
+        <button
+          type="button"
+          class="student-tile enroll-student-tile {% if child.id in enrolled_ids %}disabled{% endif %}"
+          data-target-id="child-{{ child.id }}"
+          {% if child.id in enrolled_ids %}disabled{% endif %}
+        >
+          <strong>{{ child.child_name }}</strong>
+          <span class="hint">Belt: {{ child.current_belt }}</span>
+          <span class="hint">Parent: {{ child.parent_username }}</span>
+          {% if child.id in enrolled_ids %}
+            <span class="attendance-state">Already enrolled</span>
+          {% else %}
+            <span class="attendance-state">Click to select</span>
+          {% endif %}
+        </button>
+        {% if child.id not in enrolled_ids %}
+          <input id="child-{{ child.id }}" class="enroll-checkbox hidden" type="checkbox" name="child_ids" value="{{ child.id }}" />
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <div class="enroll-divider">
+      <h4>Adult Classes</h4>
+      <p class="hint">Track: Adult, belt level shown on each student.</p>
+    </div>
+    <div class="student-tile-grid enroll-student-grid">
+      {% for child in all_students if child.program_track == 'adult' %}
+        <button
+          type="button"
+          class="student-tile enroll-student-tile {% if child.id in enrolled_ids %}disabled{% endif %}"
+          data-target-id="child-{{ child.id }}"
+          {% if child.id in enrolled_ids %}disabled{% endif %}
+        >
+          <strong>{{ child.child_name }}</strong>
+          <span class="hint">Belt: {{ child.current_belt }}</span>
+          <span class="hint">Parent: {{ child.parent_username }}</span>
+          {% if child.id in enrolled_ids %}
+            <span class="attendance-state">Already enrolled</span>
+          {% else %}
+            <span class="attendance-state">Click to select</span>
+          {% endif %}
+        </button>
+        {% if child.id not in enrolled_ids %}
+          <input id="child-{{ child.id }}" class="enroll-checkbox hidden" type="checkbox" name="child_ids" value="{{ child.id }}" />
+        {% endif %}
+      {% endfor %}
+    </div>
+    <p id="enroll-selection-count" class="hint">Selected: 0 student(s)</p>
     <button type="submit">Add Selected Students To Class</button>
   </form>
 </section>
@@ -64,4 +110,34 @@
     {% endfor %}
   </table>
 </section>
+
+<script>
+  const enrollTiles = document.querySelectorAll('.enroll-student-tile');
+  const enrollCount = document.getElementById('enroll-selection-count');
+
+  const updateEnrollCount = () => {
+    const selected = document.querySelectorAll('.enroll-checkbox:checked').length;
+    if (enrollCount) {
+      enrollCount.textContent = `Selected: ${selected} student(s)`;
+    }
+  };
+
+  enrollTiles.forEach((tile) => {
+    tile.addEventListener('click', () => {
+      if (tile.disabled) {
+        return;
+      }
+      const targetId = tile.dataset.targetId;
+      const checkbox = targetId ? document.getElementById(targetId) : null;
+      if (!checkbox) {
+        return;
+      }
+      checkbox.checked = !checkbox.checked;
+      tile.classList.toggle('selected', checkbox.checked);
+      updateEnrollCount();
+    });
+  });
+
+  updateEnrollCount();
+</script>
 {% endblock %}

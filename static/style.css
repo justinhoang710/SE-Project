@@ -99,6 +99,11 @@ button.danger {
   background: #dc2626;
 }
 
+button.secondary,
+.button.secondary {
+  background: #4b5563;
+}
+
 .actions {
   display: flex;
   gap: 10px;
@@ -312,4 +317,31 @@ td {
 
 .student-tile.selected .attendance-state {
   color: #166534;
+}
+
+.enroll-divider {
+  margin: 12px 0 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #cbd5e1;
+}
+
+.enroll-divider h4 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.enroll-student-grid {
+  margin-bottom: 12px;
+}
+
+.enroll-student-tile {
+  min-height: 120px;
+}
+
+.enroll-student-tile.disabled,
+.enroll-student-tile:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  border-color: #9ca3af;
+  background: #f3f4f6;
 }

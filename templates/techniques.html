@@ -2,8 +2,9 @@
 {% block content %}
 <section class="card">
   <h2>Karate Techniques</h2>
-  <p>Use Add or Save. A popup will require Program and Belt before submission.</p>
-  <form method="post" class="technique-form" data-default-track="{{ selected_track }}" data-default-belt="{{ selected_belt }}">
+  <p>Choose class first, then enter technique details.</p>
+  <p class="hint">Current class: {{ selected_track|title }} - {{ selected_belt }}</p>
+  <form method="post" id="add-technique-form" class="technique-form" data-default-track="{{ selected_track }}" data-default-belt="{{ selected_belt }}" data-class-confirmed="0">
     <label>Technique Name
       <input type="text" name="technique_name" required />
     </label>
@@ -76,6 +77,7 @@
       </select>
     </label>
     <div class="actions">
+      <button type="button" id="modal-switch-class" class="secondary">Switch Class</button>
       <button type="button" id="modal-confirm">Confirm</button>
       <button type="button" id="modal-cancel" class="danger">Cancel</button>
     </div>
@@ -84,16 +86,20 @@
 
 <script>
   const techniqueForms = document.querySelectorAll('.technique-form');
+  const addTechniqueForm = document.getElementById('add-technique-form');
   const modalOverlay = document.getElementById('technique-modal-overlay');
   const modalTrack = document.getElementById('modal-program-track');
   const modalBelt = document.getElementById('modal-belt-name');
+  const modalSwitchClass = document.getElementById('modal-switch-class');
   const modalConfirm = document.getElementById('modal-confirm');
   const modalCancel = document.getElementById('modal-cancel');
   const modalError = document.getElementById('modal-error');
   let activeForm = null;
+  let modalPurpose = 'save';
 
-  const openTechniqueModal = (form) => {
+  const openTechniqueModal = (form, purpose = 'save') => {
     activeForm = form;
+    modalPurpose = purpose;
     modalTrack.value = form.dataset.defaultTrack || '';
     modalBelt.value = form.dataset.defaultBelt || '';
     if (modalError) modalError.classList.add('hidden');
@@ -105,6 +111,22 @@
     activeForm = null;
   };
 
+  const applyClassToForm = (form) => {
+    if (!form || !modalTrack.value || !modalBelt.value) {
+      return false;
+    }
+    const trackInput = form.querySelector('input[name="program_track"]');
+    const beltInput = form.querySelector('input[name="belt_name"]');
+    if (trackInput) trackInput.value = modalTrack.value;
+    if (beltInput) beltInput.value = modalBelt.value;
+    form.dataset.defaultTrack = modalTrack.value;
+    form.dataset.defaultBelt = modalBelt.value;
+    if (form === addTechniqueForm) {
+      form.dataset.classConfirmed = '1';
+    }
+    return true;
+  };
+
   // Intercept all technique form submits (Add + Edit) in capture phase.
   techniqueForms.forEach((form) => {
     form.addEventListener('submit', (event) => {
@@ -113,23 +135,55 @@
         return;
       }
       event.preventDefault();
-      openTechniqueModal(form);
+      openTechniqueModal(form, 'save');
     }, true);
   });
 
+  const addFormFields = addTechniqueForm
+    ? addTechniqueForm.querySelectorAll('input[name="technique_name"], textarea[name="description"]')
+    : [];
+
+  addFormFields.forEach((field) => {
+    field.addEventListener('focus', () => {
+      if (!addTechniqueForm) return;
+      if (addTechniqueForm.dataset.classConfirmed === '1') {
+        return;
+      }
+      if (!modalOverlay.classList.contains('hidden')) {
+        return;
+      }
+      openTechniqueModal(addTechniqueForm, 'entry');
+    });
+  });
+
   modalConfirm?.addEventListener('click', () => {
-    if (!activeForm || !modalTrack.value || !modalBelt.value) {
+    if (!modalTrack.value || !modalBelt.value) {
       if (modalError) modalError.classList.remove('hidden');
       return;
     }
-    const trackInput = activeForm.querySelector('input[name="program_track"]');
-    const beltInput = activeForm.querySelector('input[name="belt_name"]');
-    if (trackInput) trackInput.value = modalTrack.value;
-    if (beltInput) beltInput.value = modalBelt.value;
-    activeForm.dataset.modalBypass = '1';
     const formToSubmit = activeForm;
+    const applied = applyClassToForm(formToSubmit);
     closeTechniqueModal();
+    if (!applied || !formToSubmit) {
+      return;
+    }
+    if (modalPurpose === 'entry') {
+      return;
+    }
+    formToSubmit.dataset.modalBypass = '1';
     HTMLFormElement.prototype.submit.call(formToSubmit);
+  });
+
+  modalSwitchClass?.addEventListener('click', () => {
+    if (!modalTrack.value || !modalBelt.value) {
+      if (modalError) modalError.classList.remove('hidden');
+      return;
+    }
+    const params = new URLSearchParams({
+      track: modalTrack.value,
+      belt: modalBelt.value,
+    });
+    window.location.href = `${window.location.pathname}?${params.toString()}`;
   });
 
   modalCancel?.addEventListener('click', closeTechniqueModal);
@@ -138,5 +192,16 @@
       closeTechniqueModal();
     }
   });
+
+  if (addTechniqueForm) {
+    const trackInput = addTechniqueForm.querySelector('input[name="program_track"]');
+    const beltInput = addTechniqueForm.querySelector('input[name="belt_name"]');
+    if (trackInput && !trackInput.value) {
+      trackInput.value = addTechniqueForm.dataset.defaultTrack || '';
+    }
+    if (beltInput && !beltInput.value) {
+      beltInput.value = addTechniqueForm.dataset.defaultBelt || '';
+    }
+  }
 </script>
 {% endblock %}
