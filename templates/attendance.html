@@ -46,7 +46,12 @@
         <th>Learned Increment</th>
       </tr>
       {% for child in roster_students %}
-        <tr>
+        <tr
+          class="student-row"
+          data-child-id="{{ child.id }}"
+          data-track="{{ child.program_track }}"
+          data-belt="{{ child.current_belt }}"
+        >
           <td>
             <label class="checkbox">
               <input type="checkbox" class="present-checkbox" name="present_child_ids" value="{{ child.id }}" />
@@ -58,16 +63,33 @@
           <td>{{ child.current_belt }}</td>
           <td>{{ child.belt_progress_count }} / {{ child.total_skills }}</td>
           <td>
-            <select name="technique_ids_{{ child.id }}" multiple size="5" class="student-techniques" data-track="{{ child.program_track }}" data-belt="{{ child.current_belt }}">
+            <div class="actions technique-actions">
+              <button type="button" class="secondary technique-select-all" data-child-id="{{ child.id }}">Select Suggested</button>
+              <button type="button" class="danger technique-clear-all" data-child-id="{{ child.id }}">Clear</button>
+            </div>
+            <div class="technique-checklist" data-child-id="{{ child.id }}">
               {% for t in active_techniques %}
-                <option value="{{ t.id }}" data-track="{{ t.program_track }}" data-belt="{{ t.belt_name }}">
-                  {{ t.technique_name }} ({{ t.program_track|title }} - {{ t.belt_name }})
-                </option>
+                <label
+                  class="checkbox technique-item"
+                  data-track="{{ t.program_track }}"
+                  data-belt="{{ t.belt_name }}"
+                >
+                  <input
+                    type="checkbox"
+                    class="technique-checkbox"
+                    name="technique_ids_{{ child.id }}"
+                    value="{{ t.id }}"
+                    data-track="{{ t.program_track }}"
+                    data-belt="{{ t.belt_name }}"
+                    data-child-id="{{ child.id }}"
+                  />
+                  <span>{{ t.technique_name }} ({{ t.program_track|title }} - {{ t.belt_name }})</span>
+                </label>
               {% endfor %}
-            </select>
+            </div>
           </td>
           <td>
-            <select name="learned_increment_{{ child.id }}">
+            <select name="learned_increment_{{ child.id }}" class="learned-increment" data-child-id="{{ child.id }}">
               <option value="1">+1</option>
               <option value="2">+2</option>
               <option value="3">+3</option>
@@ -85,15 +107,46 @@
   const presentCheckboxes = document.querySelectorAll('.present-checkbox');
   const markAllPresentBtn = document.getElementById('mark-all-present');
   const clearAllPresentBtn = document.getElementById('clear-all-present');
-  const perStudentTechniqueSelects = document.querySelectorAll('.student-techniques');
+  const studentRows = document.querySelectorAll('.student-row');
+  const techniqueCheckboxes = document.querySelectorAll('.technique-checkbox');
+  const selectAllTechniqueBtns = document.querySelectorAll('.technique-select-all');
+  const clearTechniqueBtns = document.querySelectorAll('.technique-clear-all');
 
   const filterTechniquesByStudent = () => {
-    perStudentTechniqueSelects.forEach((selectEl) => {
-      const studentTrack = selectEl.dataset.track;
-      const studentBelt = selectEl.dataset.belt;
-      Array.from(selectEl.options).forEach((option) => {
-        option.hidden = !(option.dataset.track === studentTrack && option.dataset.belt === studentBelt);
+    studentRows.forEach((row) => {
+      const studentTrack = row.dataset.track;
+      const studentBelt = row.dataset.belt;
+      const techniqueItems = row.querySelectorAll('.technique-item');
+      techniqueItems.forEach((item) => {
+        const matches = item.dataset.track === studentTrack && item.dataset.belt === studentBelt;
+        item.classList.toggle('hidden', !matches);
+        const checkbox = item.querySelector('input[type="checkbox"]');
+        if (!matches && checkbox) {
+          checkbox.checked = false;
+        }
       });
+    });
+  };
+
+  const syncInputsByAttendance = () => {
+    studentRows.forEach((row) => {
+      const presentCheckbox = row.querySelector('.present-checkbox');
+      const isPresent = !!presentCheckbox?.checked;
+      row.querySelectorAll('.technique-checkbox').forEach((checkbox) => {
+        checkbox.disabled = !isPresent;
+      });
+      const incrementSelect = row.querySelector('.learned-increment');
+      if (incrementSelect) {
+        incrementSelect.disabled = !isPresent;
+      }
+      const selectBtn = row.querySelector('.technique-select-all');
+      const clearBtn = row.querySelector('.technique-clear-all');
+      if (selectBtn) {
+        selectBtn.disabled = !isPresent;
+      }
+      if (clearBtn) {
+        clearBtn.disabled = !isPresent;
+      }
     });
   };
 
@@ -101,14 +154,43 @@
     presentCheckboxes.forEach((cb) => {
       cb.checked = true;
     });
+    syncInputsByAttendance();
   });
 
   clearAllPresentBtn?.addEventListener('click', () => {
     presentCheckboxes.forEach((cb) => {
       cb.checked = false;
     });
+    syncInputsByAttendance();
+  });
+
+  presentCheckboxes.forEach((checkbox) => {
+    checkbox.addEventListener('change', syncInputsByAttendance);
+  });
+
+  selectAllTechniqueBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const childId = btn.dataset.childId;
+      techniqueCheckboxes.forEach((checkbox) => {
+        if (checkbox.dataset.childId === childId && !checkbox.disabled && !checkbox.closest('.hidden')) {
+          checkbox.checked = true;
+        }
+      });
+    });
+  });
+
+  clearTechniqueBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const childId = btn.dataset.childId;
+      techniqueCheckboxes.forEach((checkbox) => {
+        if (checkbox.dataset.childId === childId) {
+          checkbox.checked = false;
+        }
+      });
+    });
   });
 
   filterTechniquesByStudent();
+  syncInputsByAttendance();
 </script>
 {% endblock %}
