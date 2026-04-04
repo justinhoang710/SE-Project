@@ -7,7 +7,9 @@
       <select name="shift_id" required>
         <option value="">Select shift</option>
         {% for s in my_upcoming_shifts %}
-          <option value="{{ s.id }}">{{ s.shift_date }} {{ s.start_time }}-{{ s.end_time }} ({{ s.class_name }})</option>
+          <option value="{{ s.id }}" {% if selected_shift_id and s.id == selected_shift_id %}selected{% endif %}>
+            {{ s.shift_date }} {{ s.start_time }}-{{ s.end_time }} ({{ s.class_name }})
+          </option>
         {% endfor %}
       </select>
     </label>
@@ -18,5 +20,8 @@
 
     <button type="submit">Submit Call-Out Request</button>
   </form>
+  {% if not my_upcoming_shifts %}
+    <p class="hint" style="margin-top: 0.65rem;">No upcoming shifts available.</p>
+  {% endif %}
 </section>
 {% endblock %}
