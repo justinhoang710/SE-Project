@@ -2,46 +2,66 @@
 {% block content %}
 <section class="card">
   <h2>Karate Techniques</h2>
-  <p>Choose class first, then enter technique details.</p>
-  <p class="hint">Current class: {{ selected_track|title }} - {{ selected_belt }}</p>
-  <form method="post" id="add-technique-form" class="technique-form" data-default-track="{{ selected_track }}" data-default-belt="{{ selected_belt }}" data-class-confirmed="0">
-    <label>Technique Name
-      <input type="text" name="technique_name" required />
+
+  <form method="get" class="actions" style="align-items: flex-end; margin-top: 0.7rem;">
+    <label style="min-width: 180px;">
+      Student Type
+      <select name="track" onchange="this.form.submit()" required>
+        {% for track in program_tracks %}
+          <option value="{{ track }}" {% if track == selected_track %}selected{% endif %}>{{ track_labels[track] }}</option>
+        {% endfor %}
+      </select>
     </label>
-    <input type="hidden" name="program_track" value="{{ selected_track }}" required />
-    <input type="hidden" name="belt_name" value="{{ selected_belt }}" required />
-    <label>Description
-      <textarea name="description" rows="3" placeholder="Optional"></textarea>
+    <label style="min-width: 220px;">
+      Belt Level
+      <select name="belt" onchange="this.form.submit()" required>
+        {% for belt in belt_sequence %}
+          <option value="{{ belt }}" {% if belt == selected_belt %}selected{% endif %}>{{ belt }}</option>
+        {% endfor %}
+      </select>
     </label>
-    <button type="submit" class="technique-submit">Add Technique</button>
+    <noscript><button type="submit">Switch</button></noscript>
   </form>
 </section>
 
 <section class="card">
-  <h3>Technique List</h3>
+  <h3>Add Technique</h3>
+  <form method="post">
+    <input type="hidden" name="program_track" value="{{ selected_track }}" required />
+    <input type="hidden" name="belt_name" value="{{ selected_belt }}" required />
+    <label>Technique Name
+      <input type="text" name="technique_name" required />
+    </label>
+    <label>Description
+      <textarea name="description" rows="3" placeholder="Optional"></textarea>
+    </label>
+    <button type="submit">Add Technique</button>
+  </form>
+</section>
+
+<section class="card">
+  <h3>Technique List ({{ selected_track|track_label }} - {{ selected_belt }})</h3>
   <table>
-    <tr><th>Name</th><th>Track</th><th>Belt</th><th>Description</th><th>Active</th><th>Created By</th><th>Created At</th><th>Edit</th><th>Delete</th></tr>
+    <tr><th>Name</th><th>Description</th><th>Active</th><th>Created By</th><th>Created At</th><th>Edit</th><th>Delete</th></tr>
     {% for t in technique_list %}
       <tr>
         <td>{{ t.technique_name }}</td>
-        <td>{{ t.program_track|title }}</td>
-        <td>{{ t.belt_name }}</td>
         <td>{{ t.description or '-' }}</td>
         <td>{{ 'Yes' if t.is_active else 'No' }}</td>
         <td>{{ t.created_by or '-' }}</td>
         <td>{{ t.created_at }}</td>
         <td>
-          <form method="post" action="{{ url_for('edit_technique', technique_id=t.id) }}" class="technique-form" data-default-track="{{ t.program_track }}" data-default-belt="{{ t.belt_name }}">
+          <form method="post" action="{{ url_for('edit_technique', technique_id=t.id) }}">
+            <input type="hidden" name="program_track" value="{{ selected_track }}" required />
+            <input type="hidden" name="belt_name" value="{{ selected_belt }}" required />
             <input type="text" name="technique_name" value="{{ t.technique_name }}" required />
-            <input type="hidden" name="program_track" value="{{ t.program_track }}" required />
-            <input type="hidden" name="belt_name" value="{{ t.belt_name }}" required />
             <input type="text" name="description" value="{{ t.description or '' }}" />
             <input type="text" name="extra_comment" placeholder="Add comment (optional)" />
             <label class="checkbox">
               <input type="checkbox" name="is_active" {% if t.is_active %}checked{% endif %} />
               Active
             </label>
-            <button type="submit" class="technique-submit">Save</button>
+            <button type="submit">Save</button>
           </form>
         </td>
         <td>
@@ -51,157 +71,8 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="9">No techniques added yet for this belt.</td></tr>
+      <tr><td colspan="7">No techniques added yet for this track and belt.</td></tr>
     {% endfor %}
   </table>
 </section>
-
-<div id="technique-modal-overlay" class="modal-overlay hidden">
-  <div class="modal-card">
-    <h3>Select Program And Belt</h3>
-    <p id="modal-error" class="flash error hidden">Please choose both Program and Belt.</p>
-    <label>Program
-      <select id="modal-program-track" required>
-        <option value="">Select track</option>
-        {% for track in program_tracks %}
-          <option value="{{ track }}">{{ track|title }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Belt
-      <select id="modal-belt-name" required>
-        <option value="">Select belt</option>
-        {% for belt in belt_sequence %}
-          <option value="{{ belt }}">{{ belt }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <div class="actions">
-      <button type="button" id="modal-switch-class" class="secondary">Switch Class</button>
-      <button type="button" id="modal-confirm">Confirm</button>
-      <button type="button" id="modal-cancel" class="danger">Cancel</button>
-    </div>
-  </div>
-</div>
-
-<script>
-  const techniqueForms = document.querySelectorAll('.technique-form');
-  const addTechniqueForm = document.getElementById('add-technique-form');
-  const modalOverlay = document.getElementById('technique-modal-overlay');
-  const modalTrack = document.getElementById('modal-program-track');
-  const modalBelt = document.getElementById('modal-belt-name');
-  const modalSwitchClass = document.getElementById('modal-switch-class');
-  const modalConfirm = document.getElementById('modal-confirm');
-  const modalCancel = document.getElementById('modal-cancel');
-  const modalError = document.getElementById('modal-error');
-  let activeForm = null;
-  let modalPurpose = 'save';
-
-  const openTechniqueModal = (form, purpose = 'save') => {
-    activeForm = form;
-    modalPurpose = purpose;
-    modalTrack.value = form.dataset.defaultTrack || '';
-    modalBelt.value = form.dataset.defaultBelt || '';
-    if (modalError) modalError.classList.add('hidden');
-    modalOverlay.classList.remove('hidden');
-  };
-
-  const closeTechniqueModal = () => {
-    modalOverlay.classList.add('hidden');
-    activeForm = null;
-  };
-
-  const applyClassToForm = (form) => {
-    if (!form || !modalTrack.value || !modalBelt.value) {
-      return false;
-    }
-    const trackInput = form.querySelector('input[name="program_track"]');
-    const beltInput = form.querySelector('input[name="belt_name"]');
-    if (trackInput) trackInput.value = modalTrack.value;
-    if (beltInput) beltInput.value = modalBelt.value;
-    form.dataset.defaultTrack = modalTrack.value;
-    form.dataset.defaultBelt = modalBelt.value;
-    if (form === addTechniqueForm) {
-      form.dataset.classConfirmed = '1';
-    }
-    return true;
-  };
-
-  // Intercept all technique form submits (Add + Edit) in capture phase.
-  techniqueForms.forEach((form) => {
-    form.addEventListener('submit', (event) => {
-      if (form.dataset.modalBypass === '1') {
-        form.dataset.modalBypass = '0';
-        return;
-      }
-      event.preventDefault();
-      openTechniqueModal(form, 'save');
-    }, true);
-  });
-
-  const addFormFields = addTechniqueForm
-    ? addTechniqueForm.querySelectorAll('input[name="technique_name"], textarea[name="description"]')
-    : [];
-
-  addFormFields.forEach((field) => {
-    field.addEventListener('focus', () => {
-      if (!addTechniqueForm) return;
-      if (addTechniqueForm.dataset.classConfirmed === '1') {
-        return;
-      }
-      if (!modalOverlay.classList.contains('hidden')) {
-        return;
-      }
-      openTechniqueModal(addTechniqueForm, 'entry');
-    });
-  });
-
-  modalConfirm?.addEventListener('click', () => {
-    if (!modalTrack.value || !modalBelt.value) {
-      if (modalError) modalError.classList.remove('hidden');
-      return;
-    }
-    const formToSubmit = activeForm;
-    const applied = applyClassToForm(formToSubmit);
-    closeTechniqueModal();
-    if (!applied || !formToSubmit) {
-      return;
-    }
-    if (modalPurpose === 'entry') {
-      return;
-    }
-    formToSubmit.dataset.modalBypass = '1';
-    HTMLFormElement.prototype.submit.call(formToSubmit);
-  });
-
-  modalSwitchClass?.addEventListener('click', () => {
-    if (!modalTrack.value || !modalBelt.value) {
-      if (modalError) modalError.classList.remove('hidden');
-      return;
-    }
-    const params = new URLSearchParams({
-      track: modalTrack.value,
-      belt: modalBelt.value,
-    });
-    window.location.href = `${window.location.pathname}?${params.toString()}`;
-  });
-
-  modalCancel?.addEventListener('click', closeTechniqueModal);
-  modalOverlay?.addEventListener('click', (event) => {
-    if (event.target === modalOverlay) {
-      closeTechniqueModal();
-    }
-  });
-
-  if (addTechniqueForm) {
-    const trackInput = addTechniqueForm.querySelector('input[name="program_track"]');
-    const beltInput = addTechniqueForm.querySelector('input[name="belt_name"]');
-    if (trackInput && !trackInput.value) {
-      trackInput.value = addTechniqueForm.dataset.defaultTrack || '';
-    }
-    if (beltInput && !beltInput.value) {
-      beltInput.value = addTechniqueForm.dataset.defaultBelt || '';
-    }
-  }
-</script>
 {% endblock %}

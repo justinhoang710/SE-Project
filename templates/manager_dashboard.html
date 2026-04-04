@@ -1,20 +1,38 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card">
-  <h2>Manager Dashboard</h2>
-  <div class="actions">
-    <a class="button" href="{{ url_for('manager_schedule') }}">Schedule for Manager</a>
-    <a class="button" href="{{ url_for('manager_classes') }}">Class Signup Schedule</a>
-    <a class="button" href="{{ url_for('manager_enroll') }}">Enroll Students</a>
-    <a class="button" href="{{ url_for('manager_progress') }}">Student Progress</a>
-    <a class="button" href="{{ url_for('manager_attendance') }}">Attendance</a>
-    <a class="button" href="{{ url_for('techniques') }}">Edit Technique List</a>
+  <h2>Manager Home</h2>
+  <div class="student-tile-grid" style="margin-top: 0.85rem;">
+    <a class="student-tile" href="{{ url_for('manager_schedule') }}">
+      <strong>Plan Staff Schedule</strong>
+      <span class="hint">Create and edit shifts for each day.</span>
+    </a>
+    <a class="student-tile" href="{{ url_for('manager_classes') }}">
+      <strong>Publish Class Offerings</strong>
+      <span class="hint">Open class slots for parent signups.</span>
+    </a>
+    <a class="student-tile" href="{{ url_for('manager_enroll') }}">
+      <strong>Enroll Students</strong>
+      <span class="hint">Add students to class rosters.</span>
+    </a>
+    <a class="student-tile" href="{{ url_for('manager_attendance') }}">
+      <strong>Run Attendance</strong>
+      <span class="hint">Record present students and techniques.</span>
+    </a>
+    <a class="student-tile" href="{{ url_for('manager_progress') }}">
+      <strong>Review Student Progress</strong>
+      <span class="hint">Manage promotions, progress, and notes.</span>
+    </a>
+    <a class="student-tile" href="{{ url_for('techniques') }}">
+      <strong>Edit Techniques</strong>
+      <span class="hint">Maintain the active technique catalog.</span>
+    </a>
   </div>
 </section>
 
 <section class="card">
-  <h3>Next 2 Weeks Calendar</h3>
-  <div class="calendar-grid compact-calendar">
+  <h3>Upcoming 2-Week Calendar</h3>
+  <div class="calendar-grid compact-calendar" style="margin-top: 0.75rem;">
     {% for week in calendar_weeks %}
       {% for day in week %}
         <article class="calendar-day">
@@ -36,12 +54,11 @@
 </section>
 
 <section class="card">
-  <h3>Pending Requests</h3>
-  <table>
-    <tr><th>Type</th><th>Requester</th><th>Target Employee</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
-    {% for r in pending_requests %}
+  <h3>Pending Shift Change Requests</h3>
+  <table style="margin-top: 0.65rem;">
+    <tr><th>Requester</th><th>Target Employee</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
+    {% for r in pending_switch_requests %}
       <tr>
-        <td>{{ r.request_type }}</td>
         <td>{{ r.requester }}</td>
         <td>{{ r.requested_employee or '-' }}</td>
         <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
@@ -56,7 +73,49 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="6">No pending requests.</td></tr>
+      <tr><td colspan="5">No pending shift change requests.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h3>Pending Call-Out Requests</h3>
+  <table style="margin-top: 0.65rem;">
+    <tr><th>Requester</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
+    {% for r in pending_callout_requests %}
+      <tr>
+        <td>{{ r.requester }}</td>
+        <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
+        <td>{{ r.reason }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='approve') }}">
+            <button type="submit">Approve</button>
+          </form>
+          <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='reject') }}">
+            <button type="submit" class="danger">Reject</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4">No pending call-out requests.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h3>Recent Call-Out Activity</h3>
+  <table style="margin-top: 0.65rem;">
+    <tr><th>Submitted</th><th>Requester</th><th>Shift</th><th>Status</th><th>Reason</th></tr>
+    {% for r in recent_callouts %}
+      <tr>
+        <td>{{ r.created_at }}</td>
+        <td>{{ r.requester }}</td>
+        <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
+        <td>{{ r.status }}</td>
+        <td>{{ r.reason }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5">No call-out requests found.</td></tr>
     {% endfor %}
   </table>
 </section>

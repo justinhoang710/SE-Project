@@ -2,8 +2,14 @@
 {% block content %}
 <section class="card">
   <h2>Class Signup Schedule</h2>
-  <p>These classes appear on the parent side for signup.</p>
   <form method="post">
+    <label>Track Level
+      <select name="program_track" required>
+        {% for track in program_tracks %}
+          <option value="{{ track }}" {% if track == selected_track %}selected{% endif %}>{{ track_labels[track] }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>Class Name
       <input type="text" name="class_name" required />
     </label>
@@ -38,16 +44,17 @@
 <section class="card">
   <h3>Loaded Class Offerings</h3>
   <table>
-    <tr><th>Date</th><th>Time</th><th>Class Name</th><th>Instructor</th></tr>
+    <tr><th>Track</th><th>Date</th><th>Time</th><th>Class Name</th><th>Instructor</th></tr>
     {% for cls in offerings %}
       <tr>
+        <td>{{ cls.program_track|track_label }}</td>
         <td>{{ cls.class_date }}</td>
         <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
         <td>{{ cls.class_name }}</td>
         <td>{{ cls.instructor_name or '-' }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="4">No class offerings yet.</td></tr>
+      <tr><td colspan="5">No class offerings yet.</td></tr>
     {% endfor %}
   </table>
 </section>
