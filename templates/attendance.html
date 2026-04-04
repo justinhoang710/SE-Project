@@ -2,24 +2,29 @@
 {% block content %}
 <section class="card">
   <h2>{{ page_title }}</h2>
-  <p>Roster view: mark each student present/absent and edit techniques per student directly in this tab. Mark All Present is still available.</p>
 </section>
 
 <section class="card">
   <h3>Select Class</h3>
   <form method="get">
     <label>Current Class
-      <select name="class_ref" onchange="this.form.submit()" required>
-        {% for cls in current_classes %}
-          <option value="{{ cls.class_ref }}" {% if cls.class_ref == selected_class_ref %}selected{% endif %}>
-            {{ cls.class_date }} {{ cls.start_label }}-{{ cls.end_label }} {{ cls.class_name }} ({{ cls.enrolled_count }} enrolled)
-          </option>
-        {% endfor %}
+      <select name="class_ref" onchange="this.form.submit()" {% if not current_classes %}disabled{% else %}required{% endif %}>
+        {% if current_classes %}
+          {% for cls in current_classes %}
+            <option value="{{ cls.class_ref }}" {% if cls.class_ref == selected_class_ref %}selected{% endif %}>
+              {{ cls.class_date }} {{ cls.start_label }}-{{ cls.end_label }} {{ cls.class_name }} - {{ cls.program_track|track_label }} ({{ cls.enrolled_count }} enrolled)
+            </option>
+          {% endfor %}
+        {% else %}
+          <option value="">No classes available</option>
+        {% endif %}
       </select>
     </label>
   </form>
   {% if selected_class_info %}
-    <p class="hint">Selected: {{ selected_class_info.class_date }} {{ selected_class_info.start_label }}-{{ selected_class_info.end_label }} {{ selected_class_info.class_name }}</p>
+    <p class="hint">Selected: {{ selected_class_info.class_date }} {{ selected_class_info.start_label }}-{{ selected_class_info.end_label }} {{ selected_class_info.class_name }} - {{ selected_class_info.program_track|track_label }}</p>
+  {% else %}
+    <p class="hint">No classes available.</p>
   {% endif %}
 </section>
 
@@ -29,11 +34,18 @@
     <input type="hidden" name="class_ref" value="{{ selected_class_ref }}" />
 
     <div class="actions">
-      <button type="button" id="mark-all-present">Mark All Present</button>
-      <button type="button" id="clear-all-present" class="danger">Clear All (All Absent)</button>
-      <button type="submit" name="action" value="save_attendance">Save Attendance</button>
-      <button type="submit" name="action" value="close_and_apply">End Class + Apply Per-Student Techniques</button>
+      <button type="button" id="mark-all-present" {% if not current_classes %}disabled{% endif %}>Mark All Present</button>
+      <button type="button" id="clear-all-present" class="danger" {% if not current_classes %}disabled{% endif %}>Clear All (All Absent)</button>
+      <button type="submit" name="action" value="save_attendance" {% if not current_classes %}disabled{% endif %}>Save Attendance</button>
+      <button type="submit" name="action" value="close_and_apply" {% if not current_classes %}disabled{% endif %}>End Class + Apply Per-Student Techniques</button>
     </div>
+    <label>Bulk Techniques For All Present Students (optional)
+      <select name="bulk_technique_ids" multiple size="5" {% if not current_classes %}disabled{% endif %}>
+        {% for t in active_techniques %}
+          <option value="{{ t.id }}">{{ t.technique_name }} ({{ t.program_track|track_label }} - {{ t.belt_name }})</option>
+        {% endfor %}
+      </select>
+    </label>
 
     <table>
       <tr>
@@ -41,6 +53,7 @@
         <th>Student</th>
         <th>Track</th>
         <th>Belt</th>
+        <th>Current Status</th>
         <th>Progress</th>
         <th>Techniques For This Student</th>
         <th>Learned Increment</th>
@@ -59,8 +72,9 @@
             </label>
           </td>
           <td>{{ child.child_name }}</td>
-          <td>{{ child.program_track|title }}</td>
+          <td>{{ child.program_track|track_label }}</td>
           <td>{{ child.current_belt }}</td>
+          <td class="attendance-status">Absent</td>
           <td>{{ child.belt_progress_count }} / {{ child.total_skills }}</td>
           <td>
             <div class="actions technique-actions">
@@ -83,7 +97,7 @@
                     data-belt="{{ t.belt_name }}"
                     data-child-id="{{ child.id }}"
                   />
-                  <span>{{ t.technique_name }} ({{ t.program_track|title }} - {{ t.belt_name }})</span>
+                  <span>{{ t.technique_name }} ({{ t.program_track|track_label }} - {{ t.belt_name }})</span>
                 </label>
               {% endfor %}
             </div>
@@ -97,7 +111,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="7">No students enrolled in this class.</td></tr>
+        <tr><td colspan="8">No students enrolled in this class.</td></tr>
       {% endfor %}
     </table>
   </form>
@@ -132,6 +146,10 @@
     studentRows.forEach((row) => {
       const presentCheckbox = row.querySelector('.present-checkbox');
       const isPresent = !!presentCheckbox?.checked;
+      const statusCell = row.querySelector('.attendance-status');
+      if (statusCell) {
+        statusCell.textContent = isPresent ? 'Present' : 'Absent';
+      }
       row.querySelectorAll('.technique-checkbox').forEach((checkbox) => {
         checkbox.disabled = !isPresent;
       });

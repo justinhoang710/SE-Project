@@ -13,13 +13,13 @@
     {% for student in students %}
       <tr>
         <td>{{ student.child_name }}</td>
-        <td>{{ student.program_track|title }}</td>
+        <td>{{ student.program_track|track_label }}</td>
         <td>{{ student.current_belt }}</td>
         <td>{{ 'Yes' if student.is_present else 'No' }}</td>
         <td>
           {% if student.techniques %}
             {% for technique in student.techniques %}
-              <div>{{ technique.technique_name }} ({{ technique.program_track|title }} - {{ technique.belt_name }}) +{{ technique.learned_increment }}</div>
+              <div>{{ technique.technique_name }} ({{ technique.program_track|track_label }} - {{ technique.belt_name }}) +{{ technique.learned_increment }}</div>
             {% endfor %}
           {% else %}
             -
