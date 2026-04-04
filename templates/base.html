@@ -1,45 +1,100 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ title or 'Karate Academy Portal' }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script>
+      tailwind = {
+        config: {
+          theme: {
+            extend: {
+              fontFamily: {
+                sans: ["Manrope", "ui-sans-serif", "system-ui", "sans-serif"],
+              },
+              colors: {
+                brand: {
+                  50: "#f1f5ff",
+                  100: "#e4ebff",
+                  500: "#365fd8",
+                  600: "#2d50b5",
+                  700: "#254293",
+                },
+                accent: {
+                  500: "#0ea5a5",
+                  600: "#0b8e8e",
+                },
+              },
+              boxShadow: {
+                soft: "0 12px 30px -18px rgba(15, 23, 42, 0.45)",
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
-  <body>
-    <header>
-      <h1>Modesto's Karate Academies</h1>
-      {% if session.get('username') %}
-      <nav>
-        <span>Signed in as {{ session['username'] }} ({{ session['role'] }})</span>
-        <a href="{{ url_for('dashboard') }}">Dashboard</a>
-        {% if session.get('role') in ['employee', 'manager'] %}
-          <a href="{{ url_for('techniques') }}">Techniques</a>
+  <body class="min-h-screen bg-slate-100 text-slate-900 antialiased theme-shell">
+
+    {% set logged_in = session.get('username') %}
+    {% if logged_in %}
+      <header id="react-shell-header"></header>
+      <div class="app-frame mx-auto flex w-full max-w-7xl gap-6 px-4 pb-10 pt-6 sm:px-6 lg:px-8">
+        <aside id="react-shell-sidebar" class="hidden lg:block lg:w-72 lg:shrink-0"></aside>
+        <main id="page-content" class="page-transition content-stage w-full" data-endpoint="{{ request.endpoint or '' }}">
+    {% else %}
+      <main id="page-content" class="page-transition content-stage mx-auto w-full max-w-xl px-4 pb-12 pt-14 sm:px-6" data-endpoint="{{ request.endpoint or '' }}">
+    {% endif %}
+          {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+              <div class="mb-4 space-y-3">
+                {% for category, message in messages %}
+                  <div class="flash {{ category }}">{{ message }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endwith %}
+
+          {% block content %}{% endblock %}
+        </main>
+    {% if logged_in %}
+      </div>
+    {% endif %}
+
+    <script>
+      window.__APP_CONTEXT__ = {
+        loggedIn: {{ 'true' if logged_in else 'false' }},
+        username: {{ (session.get('username') or '')|tojson }},
+        role: {{ (session.get('role') or '')|tojson }},
+        endpoint: {{ (request.endpoint or '')|tojson }},
+        logoUrl: {{ url_for('static', filename='ModestoLogo.png')|tojson }},
+        navItems: [
+          { label: 'Dashboard', hint: 'Overview', href: {{ url_for('dashboard')|tojson }}, endpoints: ['dashboard', 'manager_dashboard', 'employee_dashboard', 'parent_dashboard'] },
           {% if session.get('role') == 'employee' %}
-            <a href="{{ url_for('employee_attendance') }}">Attendance</a>
+          { label: 'Attendance', hint: 'Take class attendance', href: {{ url_for('employee_attendance')|tojson }}, endpoints: ['employee_attendance', 'attendance_summary'] },
+          { label: 'Progress', hint: 'Track student growth', href: {{ url_for('employee_progress')|tojson }}, endpoints: ['employee_progress'] },
+          { label: 'Techniques', hint: 'Manage techniques', href: {{ url_for('techniques')|tojson }}, endpoints: ['techniques'] },
+          { label: 'Shift Switch', hint: 'Request schedule swap', href: {{ url_for('request_switch')|tojson }}, endpoints: ['request_switch'] },
+          { label: 'Call-Out', hint: 'Submit absence', href: {{ url_for('request_callout')|tojson }}, endpoints: ['request_callout'] },
           {% elif session.get('role') == 'manager' %}
-            <a href="{{ url_for('manager_attendance') }}">Attendance</a>
+          { label: 'Schedule Builder', hint: 'Plan classes', href: {{ url_for('manager_schedule')|tojson }}, endpoints: ['manager_schedule'] },
+          { label: 'Class Offerings', hint: 'Open classes for signup', href: {{ url_for('manager_classes')|tojson }}, endpoints: ['manager_classes'] },
+          { label: 'Enroll Students', hint: 'Add students to classes', href: {{ url_for('manager_enroll')|tojson }}, endpoints: ['manager_enroll'] },
+          { label: 'Attendance', hint: 'Track attendance', href: {{ url_for('manager_attendance')|tojson }}, endpoints: ['manager_attendance', 'attendance_summary'] },
+          { label: 'Student Progress', hint: 'Promotions and notes', href: {{ url_for('manager_progress')|tojson }}, endpoints: ['manager_progress'] },
+          { label: 'Techniques', hint: 'Edit technique list', href: {{ url_for('techniques')|tojson }}, endpoints: ['techniques'] },
+          {% elif session.get('role') == 'parent' %}
+          { label: 'My Child Dashboard', hint: 'Schedule and attendance', href: {{ url_for('parent_dashboard')|tojson }}, endpoints: ['parent_dashboard'] },
           {% endif %}
-        {% endif %}
-        {% if session.get('role') == 'manager' %}
-          <a href="{{ url_for('manager_enroll') }}">Enroll</a>
-          <a href="{{ url_for('manager_classes') }}">Class Signup Schedule</a>
-        {% endif %}
-        <a href="{{ url_for('logout') }}">Logout</a>
-      </nav>
-      {% endif %}
-    </header>
-
-    <main>
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          {% for category, message in messages %}
-            <div class="flash {{ category }}">{{ message }}</div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
-
-      {% block content %}{% endblock %}
-    </main>
+          { label: 'Log Out', hint: 'Sign out securely', href: {{ url_for('logout')|tojson }}, endpoints: ['logout'] }
+        ]
+      };
+    </script>
+    <script defer src="{{ url_for('static', filename='app_shell.js') }}"></script>
   </body>
 </html>
