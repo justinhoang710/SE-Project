@@ -25,7 +25,24 @@ BELT_SEQUENCE = [
     "1st Brown",
     "Black Belt",
 ]
-PROGRAM_TRACKS = ("kid", "adult")
+TRACK_LABELS = {
+    "little_dragons": "Little Dragons (Age 4)",
+    "kids_martial_arts": "Kids Martial Arts (Ages 5-12)",
+    "teen_martial_arts": "Teen Martial Arts (Ages 13+)",
+    "adult_martial_arts": "Adult Martial Arts",
+}
+TRACK_NORMALIZATION = {
+    "kid": "kids_martial_arts",
+    "adult": "adult_martial_arts",
+    "kids": "kids_martial_arts",
+    "teens": "teen_martial_arts",
+    "teen": "teen_martial_arts",
+    "little dragons": "little_dragons",
+    "kids martial arts": "kids_martial_arts",
+    "teen martial arts": "teen_martial_arts",
+    "adult martial arts": "adult_martial_arts",
+}
+PROGRAM_TRACKS = tuple(TRACK_LABELS.keys())
 MAX_CLASSES_PER_WEEK = 3
 LEARNED_TARGET = 3
 
@@ -36,8 +53,14 @@ def _belt_name_for_index(belt_index):
 
 
 def _normalize_track(value):
-    normalized = (value or "").strip().lower()
-    return normalized if normalized in PROGRAM_TRACKS else "kid"
+    normalized = (value or "").strip().lower().replace("-", "_")
+    normalized = TRACK_NORMALIZATION.get(normalized, normalized)
+    return normalized if normalized in PROGRAM_TRACKS else "kids_martial_arts"
+
+
+def _track_label(value):
+    normalized = _normalize_track(value)
+    return TRACK_LABELS.get(normalized, normalized.replace("_", " ").title())
 
 
 def _ensure_feature_schema(cur):
@@ -46,6 +69,7 @@ def _ensure_feature_schema(cur):
         """
         CREATE TABLE IF NOT EXISTS class_offerings (
           id INT AUTO_INCREMENT PRIMARY KEY,
+          program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts',
           class_name VARCHAR(120) NOT NULL,
           class_date DATE NOT NULL,
           start_time TIME NOT NULL,
@@ -76,15 +100,34 @@ def _ensure_feature_schema(cur):
 
     # Backfill columns added for belt/track and 1-3 learn counts.
     alter_statements = [
-        "ALTER TABLE children ADD COLUMN program_track ENUM('kid', 'adult') NOT NULL DEFAULT 'kid'",
+        "ALTER TABLE children ADD COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
         "ALTER TABLE children ADD COLUMN belt_index INT NOT NULL DEFAULT 0",
-        "ALTER TABLE techniques ADD COLUMN program_track ENUM('kid', 'adult') NOT NULL DEFAULT 'kid'",
+        "ALTER TABLE techniques ADD COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
         "ALTER TABLE techniques ADD COLUMN belt_name VARCHAR(40) NOT NULL DEFAULT 'White'",
         "ALTER TABLE child_skill_progress ADD COLUMN learned_count TINYINT NOT NULL DEFAULT 0",
         "ALTER TABLE attendance_students ADD COLUMN is_present TINYINT(1) NOT NULL DEFAULT 1",
         "ALTER TABLE attendance_sessions ADD COLUMN offering_id INT NULL",
+        "ALTER TABLE children ADD COLUMN guardian_name VARCHAR(120) NULL",
+        "ALTER TABLE children ADD COLUMN contact_phone VARCHAR(40) NULL",
+        "ALTER TABLE requests ADD COLUMN switch_target_status ENUM('pending','accepted','rejected') NOT NULL DEFAULT 'pending'",
+        "ALTER TABLE class_offerings ADD COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
     ]
     for statement in alter_statements:
+        try:
+            cur.execute(statement)
+        except Exception:
+            pass
+
+    # Backfill old track values and align enum definitions for older databases.
+    track_migration_sql = [
+        "UPDATE children SET program_track = 'kids_martial_arts' WHERE program_track = 'kid'",
+        "UPDATE children SET program_track = 'adult_martial_arts' WHERE program_track = 'adult'",
+        "UPDATE techniques SET program_track = 'kids_martial_arts' WHERE program_track = 'kid'",
+        "UPDATE techniques SET program_track = 'adult_martial_arts' WHERE program_track = 'adult'",
+        "ALTER TABLE children MODIFY COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
+        "ALTER TABLE techniques MODIFY COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
+    ]
+    for statement in track_migration_sql:
         try:
             cur.execute(statement)
         except Exception:
@@ -96,7 +139,7 @@ def _ensure_feature_schema(cur):
         CREATE OR REPLACE VIEW kid_belt_students AS
         SELECT id, child_name, belt_index
         FROM children
-        WHERE program_track = 'kid'
+        WHERE program_track IN ('little_dragons', 'kids_martial_arts', 'teen_martial_arts')
         """
     )
     cur.execute(
@@ -104,7 +147,7 @@ def _ensure_feature_schema(cur):
         CREATE OR REPLACE VIEW adult_belt_students AS
         SELECT id, child_name, belt_index
         FROM children
-        WHERE program_track = 'adult'
+        WHERE program_track = 'adult_martial_arts'
         """
     )
 
@@ -153,6 +196,23 @@ def _ensure_feature_schema(cur):
         )
         """
     )
+
+
+def _predict_test_ready_date(progress_row):
+    # Estimate test readiness date from learned_count progression (3 = test ready).
+    learned_count = int(progress_row.get("learned_count") or 0)
+    if learned_count >= LEARNED_TARGET:
+        progress_row["predicted_test_date"] = None
+        progress_row["prediction_label"] = "Ready now"
+        return
+
+    remaining = max(LEARNED_TARGET - learned_count, 1)
+    anchor = progress_row.get("assigned_at")
+    if not isinstance(anchor, datetime):
+        anchor = datetime.now()
+    predicted = (anchor.date() + timedelta(days=remaining * 7))
+    progress_row["predicted_test_date"] = predicted
+    progress_row["prediction_label"] = predicted.strftime("%b %d, %Y")
 
 
 def _get_child_belt_progress(cur, child_id, track, belt_name):
@@ -324,6 +384,7 @@ def _fetch_child_progress_rows(cur, child_ids):
     rows = cur.fetchall()
     grouped = {child_id: [] for child_id in child_ids}
     for row in rows:
+        _predict_test_ready_date(row)
         grouped[row["child_id"]].append(row)
     return grouped
 
@@ -350,6 +411,21 @@ def _build_two_week_calendar(start_date, shifts):
         )
 
     return [days[:7], days[7:]]
+
+
+def _parse_time_value(value):
+    try:
+        return datetime.strptime((value or "").strip(), "%H:%M").time()
+    except ValueError:
+        return None
+
+
+def _is_valid_time_window(start_time_value, end_time_value):
+    start_time = _parse_time_value(start_time_value)
+    end_time = _parse_time_value(end_time_value)
+    if not start_time or not end_time:
+        return False
+    return start_time < end_time
 
 
 def _ensure_parent_notes_table(cur):
@@ -417,6 +493,19 @@ def verify_password(stored_hash: str, candidate: str) -> bool:
         actual = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
         return hmac.compare_digest(stored_hash.lower(), actual)
     return hmac.compare_digest(stored_hash, candidate)
+
+
+@app.template_filter("track_label")
+def track_label_filter(value):
+    return _track_label(value)
+
+
+@app.context_processor
+def inject_track_metadata():
+    return {
+        "track_labels": TRACK_LABELS,
+        "program_tracks": PROGRAM_TRACKS,
+    }
 
 
 # -----------------------------
@@ -494,6 +583,7 @@ def register():
         confirm_password = request.form.get("confirm_password", "")
         role = request.form.get("role", "").strip()
         child_name = request.form.get("child_name", "").strip()
+        employee_access_password = request.form.get("employee_access_password", "").strip()
 
         if len(username) < 3:
             flash("Username must be at least 3 characters.", "error")
@@ -509,6 +599,10 @@ def register():
 
         if role not in {"employee", "parent"}:
             flash("Invalid role selected.", "error")
+            return render_template("register.html")
+
+        if role == "employee" and employee_access_password != "test":
+            flash("Invalid employee access password.", "error")
             return render_template("register.html")
 
         if role == "parent" and not child_name:
@@ -578,6 +672,7 @@ def employee_dashboard():
     # Show employee shifts and submitted request history.
     db = get_db()
     cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
     cur.execute(
         """
         SELECT s.id, s.shift_date, s.start_time, s.end_time, s.class_name, u.username AS assigned_to
@@ -593,6 +688,7 @@ def employee_dashboard():
     cur.execute(
         """
         SELECT r.id, r.request_type, r.status, r.reason, r.created_at,
+               r.switch_target_status,
                s.shift_date, s.start_time, s.end_time, s.class_name,
                u.username AS requested_employee
         FROM requests r
@@ -604,6 +700,30 @@ def employee_dashboard():
         (session["user_id"],),
     )
     my_requests = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT
+            r.id,
+            r.reason,
+            r.created_at,
+            req.username AS requester,
+            s.shift_date,
+            s.start_time,
+            s.end_time,
+            s.class_name
+        FROM requests r
+        JOIN users req ON req.id = r.requester_user_id
+        JOIN shifts s ON s.id = r.shift_id
+        WHERE r.request_type = 'switch'
+          AND r.requested_employee_id = %s
+          AND r.switch_target_status = 'pending'
+          AND r.status = 'pending'
+        ORDER BY r.created_at DESC
+        """,
+        (session["user_id"],),
+    )
+    incoming_switch_requests = cur.fetchall()
 
     calendar_start = date.today()
     calendar_end = calendar_start + timedelta(days=13)
@@ -630,6 +750,7 @@ def employee_dashboard():
         "employee_dashboard.html",
         my_shifts=my_shifts,
         my_requests=my_requests,
+        incoming_switch_requests=incoming_switch_requests,
         calendar_weeks=calendar_weeks,
     )
 
@@ -694,8 +815,8 @@ def request_switch():
 
         cur.execute(
             """
-            INSERT INTO requests (request_type, requester_user_id, shift_id, requested_employee_id, reason, status)
-            VALUES ('switch', %s, %s, %s, %s, 'pending')
+            INSERT INTO requests (request_type, requester_user_id, shift_id, requested_employee_id, reason, status, switch_target_status)
+            VALUES ('switch', %s, %s, %s, %s, 'pending', 'pending')
             """,
             (session["user_id"], shift_id, requested_employee_id, reason),
         )
@@ -715,6 +836,16 @@ def request_switch():
         (session["user_id"], date.today()),
     )
     my_upcoming_shifts = cur.fetchall()
+    shift_ids = {row["id"] for row in my_upcoming_shifts}
+    prefill_shift_id = request.args.get("shift_id", type=int)
+    prefill_shift_date = (request.args.get("shift_date") or "").strip()
+    selected_shift_id = prefill_shift_id if prefill_shift_id in shift_ids else None
+
+    if not selected_shift_id and prefill_shift_date:
+        for row in my_upcoming_shifts:
+            if str(row.get("shift_date")) == prefill_shift_date:
+                selected_shift_id = row["id"]
+                break
 
     cur.execute(
         "SELECT id, username FROM users WHERE role = 'employee' AND id != %s ORDER BY username",
@@ -724,7 +855,10 @@ def request_switch():
     cur.close()
 
     return render_template(
-        "request_switch.html", my_upcoming_shifts=my_upcoming_shifts, employees=employees
+        "request_switch.html",
+        my_upcoming_shifts=my_upcoming_shifts,
+        employees=employees,
+        selected_shift_id=selected_shift_id,
     )
 
 
@@ -773,9 +907,85 @@ def request_callout():
         (session["user_id"], date.today()),
     )
     my_upcoming_shifts = cur.fetchall()
+    shift_ids = {row["id"] for row in my_upcoming_shifts}
+    prefill_shift_id = request.args.get("shift_id", type=int)
+    prefill_shift_date = (request.args.get("shift_date") or "").strip()
+    selected_shift_id = prefill_shift_id if prefill_shift_id in shift_ids else None
+
+    if not selected_shift_id and prefill_shift_date:
+        for row in my_upcoming_shifts:
+            if str(row.get("shift_date")) == prefill_shift_date:
+                selected_shift_id = row["id"]
+                break
+
     cur.close()
 
-    return render_template("request_callout.html", my_upcoming_shifts=my_upcoming_shifts)
+    return render_template(
+        "request_callout.html",
+        my_upcoming_shifts=my_upcoming_shifts,
+        selected_shift_id=selected_shift_id,
+    )
+
+
+@app.route("/employee/requests/<int:request_id>/<action>", methods=["POST"])
+@login_required
+@role_required("employee")
+def respond_switch_request(request_id, action):
+    # Target employee accepts/rejects shift takeover before manager review.
+    if action not in {"accept", "reject"}:
+        flash("Invalid action.", "error")
+        return redirect(url_for("employee_dashboard"))
+
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
+    cur.execute(
+        """
+        SELECT id, request_type, status, switch_target_status
+        FROM requests
+        WHERE id = %s
+          AND request_type = 'switch'
+          AND requested_employee_id = %s
+        """,
+        (request_id, session["user_id"]),
+    )
+    req = cur.fetchone()
+    if not req:
+        cur.close()
+        flash("Shift request not found.", "error")
+        return redirect(url_for("employee_dashboard"))
+
+    if req["status"] != "pending" or req.get("switch_target_status") != "pending":
+        cur.close()
+        flash("This shift request was already responded to.", "info")
+        return redirect(url_for("employee_dashboard"))
+
+    if action == "accept":
+        cur.execute(
+            """
+            UPDATE requests
+            SET switch_target_status = 'accepted'
+            WHERE id = %s
+            """,
+            (request_id,),
+        )
+        db.commit()
+        flash("You accepted the shift takeover request. Manager review is now required.", "success")
+    else:
+        cur.execute(
+            """
+            UPDATE requests
+            SET switch_target_status = 'rejected',
+                status = 'rejected'
+            WHERE id = %s
+            """,
+            (request_id,),
+        )
+        db.commit()
+        flash("You rejected the shift takeover request.", "info")
+
+    cur.close()
+    return redirect(url_for("employee_dashboard"))
 
 
 def _staff_progress_screen(page_title):
@@ -786,7 +996,7 @@ def _staff_progress_screen(page_title):
 
     if request.method == "POST":
         # Route multiple form intents from a single staff progress page.
-        action = request.form.get("action", "add_progress").strip()
+        action = request.form.get("action", "").strip()
 
         if action == "promote_belt":
             child_id = request.form.get("child_id", type=int)
@@ -843,83 +1053,10 @@ def _staff_progress_screen(page_title):
             )
             db.commit()
             flash("Parent note sent.", "success")
-        elif action == "apply_attendance":
-            class_name = request.form.get("class_name", "").strip()
-            class_date = request.form.get("class_date", "").strip()
-            start_time = request.form.get("start_time", "").strip()
-            end_time = request.form.get("end_time", "").strip()
-            child_ids = request.form.getlist("attendance_child_ids")
-            technique_ids = request.form.getlist("attendance_technique_ids")
-            learned_increment = request.form.get("learned_increment", type=int) or 1
-
-            if not (class_name and class_date and start_time and end_time):
-                flash("Please select a current class first.", "error")
-                cur.close()
-                return redirect(request.path)
-            if not child_ids:
-                flash("Select at least one student present in class.", "error")
-                cur.close()
-                return redirect(request.path)
-            if not technique_ids:
-                flash("Select at least one technique learned in class.", "error")
-                cur.close()
-                return redirect(request.path)
-
-            cur.execute(
-                """
-                INSERT INTO attendance_sessions
-                  (class_name, class_date, start_time, end_time, staff_user_id)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (class_name, class_date, start_time, end_time, session["user_id"]),
-            )
-            attendance_session_id = cur.lastrowid
-            updated_pairs = 0
-            for child_id_value in child_ids:
-                child_id = int(child_id_value)
-                cur.execute(
-                    """
-                    INSERT IGNORE INTO attendance_students (attendance_session_id, child_id)
-                    VALUES (%s, %s)
-                    """,
-                    (attendance_session_id, child_id),
-                )
-                for technique_id_value in technique_ids:
-                    technique_id = int(technique_id_value)
-                    if _apply_learning_entry(
-                        cur,
-                        child_id,
-                        technique_id,
-                        session["user_id"],
-                        increment=learned_increment,
-                        notes_text=f"Attendance: {class_name} {class_date}",
-                    ):
-                        updated_pairs += 1
-
-            db.commit()
-            flash(
-                f"Attendance saved and {updated_pairs} student-technique records updated.",
-                "success",
-            )
         else:
-            child_id = request.form.get("child_id", type=int)
-            technique_id = request.form.get("technique_id", type=int)
-            notes = request.form.get("notes", "").strip()
-            learned_count = request.form.get("learned_count", type=int) or 1
-
-            if not _apply_learning_entry(
-                cur,
-                child_id,
-                technique_id,
-                session["user_id"],
-                increment=learned_count,
-                notes_text=notes,
-            ):
-                flash("Please choose a valid student and active technique.", "error")
-                cur.close()
-                return redirect(request.path)
-            db.commit()
-            flash("Progress record added.", "success")
+            flash("Progress entries are now created from Attendance only.", "info")
+            cur.close()
+            return redirect(request.path)
 
     cur.execute(
         """
@@ -933,7 +1070,7 @@ def _staff_progress_screen(page_title):
         child["program_track"] = _normalize_track(child.get("program_track"))
         child["belt_name"] = _belt_name_for_index(child.get("belt_index"))
 
-    # Keep active techniques for new assignments and full list for row edits.
+    # Keep full technique list for row edits.
     cur.execute(
         """
         SELECT id, technique_name, is_active, program_track, belt_name
@@ -942,30 +1079,6 @@ def _staff_progress_screen(page_title):
         """
     )
     all_techniques = cur.fetchall()
-    techniques = [t for t in all_techniques if t["is_active"]]
-    today = date.today()
-    cur.execute(
-        """
-        SELECT
-            class_name,
-            shift_date AS class_date,
-            TIME_FORMAT(start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(end_time, '%H:%i') AS end_label
-        FROM shifts
-        WHERE shift_date = %s
-        UNION ALL
-        SELECT
-            class_name,
-            class_date,
-            TIME_FORMAT(start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(end_time, '%H:%i') AS end_label
-        FROM class_offerings
-        WHERE class_date = %s
-        ORDER BY class_name, class_date, start_label
-        """,
-        (today, today),
-    )
-    today_classes = cur.fetchall()
     child_summary = _fetch_child_progress_summary(cur)
     child_progress_rows = _fetch_child_progress_rows(cur, [c["id"] for c in child_summary])
     child_parent_notes = _fetch_parent_notes_rows(cur, [c["id"] for c in child_summary])
@@ -974,9 +1087,8 @@ def _staff_progress_screen(page_title):
         "progress_screen.html",
         page_title=page_title,
         children=children,
-        techniques=techniques,
         all_techniques=all_techniques,
-        today_classes=today_classes,
+        belt_sequence=BELT_SEQUENCE,
         child_summary=child_summary,
         child_progress_rows=child_progress_rows,
         child_parent_notes=child_parent_notes,
@@ -1076,13 +1188,19 @@ def _staff_attendance_screen(page_title):
                 cur.close()
                 return redirect(request.path)
 
+            bulk_technique_ids = {
+                int(value)
+                for value in request.form.getlist("bulk_technique_ids")
+                if (value or "").isdigit()
+            }
             updates = 0
             for child_id in present_child_ids:
-                technique_ids = [
+                per_student_technique_ids = {
                     int(value)
                     for value in request.form.getlist(f"technique_ids_{child_id}")
                     if (value or "").isdigit()
-                ]
+                }
+                technique_ids = sorted(per_student_technique_ids.union(bulk_technique_ids))
                 learned_increment = request.form.get(
                     f"learned_increment_{child_id}",
                     type=int,
@@ -1141,6 +1259,7 @@ def _staff_attendance_screen(page_title):
         SELECT
             CONCAT('offering:', co.id) AS class_ref,
             co.id AS offering_id,
+            co.program_track,
             co.class_name,
             co.class_date,
             TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
@@ -1149,7 +1268,7 @@ def _staff_attendance_screen(page_title):
         FROM class_offerings co
         LEFT JOIN class_enrollments ce ON ce.offering_id = co.id
         WHERE co.class_date >= %s
-        GROUP BY co.id, co.class_name, co.class_date, co.start_time, co.end_time
+        GROUP BY co.id, co.program_track, co.class_name, co.class_date, co.start_time, co.end_time
         ORDER BY co.class_date, co.start_time, co.class_name
         """,
         (date.today(),),
@@ -1164,7 +1283,7 @@ def _staff_attendance_screen(page_title):
     if selected_offering_id:
         cur.execute(
             """
-            SELECT id, class_name, class_date,
+            SELECT id, program_track, class_name, class_date,
                    TIME_FORMAT(start_time, '%H:%i') AS start_label,
                    TIME_FORMAT(end_time, '%H:%i') AS end_label
             FROM class_offerings
@@ -1173,6 +1292,10 @@ def _staff_attendance_screen(page_title):
             (selected_offering_id,),
         )
         selected_class_info = cur.fetchone()
+        if selected_class_info:
+            selected_class_info["program_track"] = _normalize_track(
+                selected_class_info.get("program_track")
+            )
         cur.execute(
             """
             SELECT c.id, c.child_name, c.program_track, c.belt_index
@@ -1197,14 +1320,26 @@ def _staff_attendance_screen(page_title):
             child["belt_progress_count"] = completed_skills
             child["total_skills"] = total_skills
 
-    cur.execute(
-        """
-        SELECT id, technique_name, program_track, belt_name
-        FROM techniques
-        WHERE is_active = 1
-        ORDER BY program_track, belt_name, technique_name
-        """
-    )
+    if selected_class_info and selected_class_info.get("program_track"):
+        cur.execute(
+            """
+            SELECT id, technique_name, program_track, belt_name
+            FROM techniques
+            WHERE is_active = 1
+              AND program_track = %s
+            ORDER BY belt_name, technique_name
+            """,
+            (selected_class_info["program_track"],),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, technique_name, program_track, belt_name
+            FROM techniques
+            WHERE is_active = 1
+            ORDER BY program_track, belt_name, technique_name
+            """
+        )
     active_techniques = cur.fetchall()
     cur.close()
 
@@ -1228,9 +1363,10 @@ def _staff_attendance_screen(page_title):
 @login_required
 @role_required("manager")
 def manager_dashboard():
-    # Show all shifts and pending employee requests for manager review.
+    # Show all shifts and manager review queues for shift changes and call-outs.
     db = get_db()
     cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
 
     cur.execute(
         """
@@ -1244,7 +1380,7 @@ def manager_dashboard():
 
     cur.execute(
         """
-        SELECT r.id, r.request_type, r.status, r.reason, r.created_at,
+        SELECT r.id, r.status, r.reason, r.created_at,
                req.username AS requester,
                target.username AS requested_employee,
                s.shift_date, s.start_time, s.end_time, s.class_name
@@ -1252,11 +1388,43 @@ def manager_dashboard():
         JOIN users req ON req.id = r.requester_user_id
         LEFT JOIN users target ON target.id = r.requested_employee_id
         LEFT JOIN shifts s ON s.id = r.shift_id
-        WHERE r.status = 'pending'
+        WHERE r.request_type = 'switch'
+          AND r.status = 'pending'
+          AND r.switch_target_status = 'accepted'
         ORDER BY r.created_at ASC
         """
     )
-    pending_requests = cur.fetchall()
+    pending_switch_requests = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT r.id, r.status, r.reason, r.created_at,
+               req.username AS requester,
+               s.shift_date, s.start_time, s.end_time, s.class_name
+        FROM requests r
+        JOIN users req ON req.id = r.requester_user_id
+        LEFT JOIN shifts s ON s.id = r.shift_id
+        WHERE r.request_type = 'callout'
+          AND r.status = 'pending'
+        ORDER BY r.created_at ASC
+        """
+    )
+    pending_callout_requests = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT r.id, r.status, r.reason, r.created_at,
+               req.username AS requester,
+               s.shift_date, s.start_time, s.end_time, s.class_name
+        FROM requests r
+        JOIN users req ON req.id = r.requester_user_id
+        LEFT JOIN shifts s ON s.id = r.shift_id
+        WHERE r.request_type = 'callout'
+        ORDER BY r.created_at DESC
+        LIMIT 25
+        """
+    )
+    recent_callouts = cur.fetchall()
 
     calendar_start = date.today()
     calendar_end = calendar_start + timedelta(days=13)
@@ -1283,7 +1451,9 @@ def manager_dashboard():
     return render_template(
         "manager_dashboard.html",
         all_shifts=all_shifts,
-        pending_requests=pending_requests,
+        pending_switch_requests=pending_switch_requests,
+        pending_callout_requests=pending_callout_requests,
+        recent_callouts=recent_callouts,
         calendar_weeks=calendar_weeks,
     )
 
@@ -1329,6 +1499,10 @@ def manager_schedule():
                 flash("Employee, class, start time, and end time are required.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
+            if not _is_valid_time_window(start_time, end_time):
+                flash("End time must be later than start time.", "error")
+                cur.close()
+                return schedule_redirect(selected_day)
 
             cur.execute("SELECT id FROM shifts WHERE id = %s", (shift_id,))
             shift = cur.fetchone()
@@ -1341,6 +1515,24 @@ def manager_schedule():
             employee = cur.fetchone()
             if not employee:
                 flash("Employee not found.", "error")
+                cur.close()
+                return schedule_redirect(selected_day)
+
+            cur.execute(
+                """
+                SELECT id
+                FROM shifts
+                WHERE employee_user_id = %s
+                  AND shift_date = %s
+                  AND id != %s
+                  AND NOT (end_time <= %s OR start_time >= %s)
+                LIMIT 1
+                """,
+                (employee_id, selected_day, shift_id, start_time, end_time),
+            )
+            overlap = cur.fetchone()
+            if overlap:
+                flash("This employee already has an overlapping shift for that time.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
 
@@ -1372,11 +1564,32 @@ def manager_schedule():
                 flash("All fields are required to create a shift.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
+            if not _is_valid_time_window(start_time, end_time):
+                flash("End time must be later than start time.", "error")
+                cur.close()
+                return schedule_redirect(selected_day)
 
             cur.execute("SELECT id FROM users WHERE id = %s AND role = 'employee'", (employee_id,))
             employee = cur.fetchone()
             if not employee:
                 flash("Employee not found.", "error")
+                cur.close()
+                return schedule_redirect(selected_day)
+
+            cur.execute(
+                """
+                SELECT id
+                FROM shifts
+                WHERE employee_user_id = %s
+                  AND shift_date = %s
+                  AND NOT (end_time <= %s OR start_time >= %s)
+                LIMIT 1
+                """,
+                (employee_id, shift_date, start_time, end_time),
+            )
+            overlap = cur.fetchone()
+            if overlap:
+                flash("This employee already has an overlapping shift for that time.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
 
@@ -1468,6 +1681,51 @@ def manager_enroll():
     _ensure_feature_schema(cur)
 
     if request.method == "POST":
+        action = request.form.get("action", "enroll_students").strip()
+        if action == "create_student":
+            child_name = request.form.get("child_name", "").strip()
+            parent_user_id = request.form.get("parent_user_id", type=int)
+            program_track = _normalize_track(request.form.get("program_track", "kids_martial_arts"))
+            belt_index = request.form.get("belt_index", type=int) or 0
+            guardian_name = request.form.get("guardian_name", "").strip()
+            contact_phone = request.form.get("contact_phone", "").strip()
+
+            belt_index = max(0, min(belt_index, len(BELT_SEQUENCE) - 1))
+            if not (child_name and parent_user_id and contact_phone):
+                flash("Student name, parent account, and contact phone are required.", "error")
+                cur.close()
+                return redirect(url_for("manager_enroll"))
+
+            cur.execute(
+                "SELECT id FROM users WHERE id = %s AND role = 'parent'",
+                (parent_user_id,),
+            )
+            parent_user = cur.fetchone()
+            if not parent_user:
+                flash("Selected parent account is invalid.", "error")
+                cur.close()
+                return redirect(url_for("manager_enroll"))
+
+            cur.execute(
+                """
+                INSERT INTO children
+                  (child_name, parent_user_id, program_track, belt_index, guardian_name, contact_phone)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    child_name,
+                    parent_user_id,
+                    program_track,
+                    belt_index,
+                    guardian_name or None,
+                    contact_phone,
+                ),
+            )
+            db.commit()
+            cur.close()
+            flash("Student profile created.", "success")
+            return redirect(url_for("manager_enroll"))
+
         offering_id = request.form.get("offering_id", type=int)
         child_ids = [
             int(value)
@@ -1485,7 +1743,7 @@ def manager_enroll():
 
         cur.execute(
             """
-            SELECT id
+            SELECT id, program_track
             FROM class_offerings
             WHERE id = %s
             """,
@@ -1507,6 +1765,10 @@ def manager_enroll():
                 (offering_id, child_id, session["user_id"]),
             )
             added += cur.rowcount
+            cur.execute(
+                "UPDATE children SET program_track = %s WHERE id = %s",
+                (offering["program_track"], child_id),
+            )
 
         db.commit()
         flash(f"Added {added} student(s) to class roster.", "success")
@@ -1518,6 +1780,7 @@ def manager_enroll():
         """
         SELECT
             co.id,
+            co.program_track,
             co.class_name,
             co.class_date,
             TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
@@ -1564,9 +1827,14 @@ def manager_enroll():
 
     enrolled_ids = {child["id"] for child in selected_roster}
     cur.execute(
+        "SELECT id, username FROM users WHERE role = 'parent' ORDER BY username"
+    )
+    parent_accounts = cur.fetchall()
+    cur.execute(
         """
         SELECT
             co.id,
+            co.program_track,
             co.class_name,
             co.class_date,
             TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
@@ -1575,7 +1843,7 @@ def manager_enroll():
         FROM class_offerings co
         LEFT JOIN class_enrollments ce ON ce.offering_id = co.id
         WHERE co.class_date >= %s
-        GROUP BY co.id, co.class_name, co.class_date, co.start_time, co.end_time
+        GROUP BY co.id, co.program_track, co.class_name, co.class_date, co.start_time, co.end_time
         ORDER BY co.class_date, co.start_time
         """
         ,
@@ -1589,6 +1857,8 @@ def manager_enroll():
         selected_offering_id=selected_offering_id,
         selected_roster=selected_roster,
         all_students=all_students,
+        parent_accounts=parent_accounts,
+        belt_sequence=BELT_SEQUENCE,
         enrolled_ids=enrolled_ids,
         class_roster_counts=class_roster_counts,
     )
@@ -1602,8 +1872,11 @@ def manager_classes():
     db = get_db()
     cur = db.cursor(dictionary=True)
     _ensure_feature_schema(cur)
+    current_track = _normalize_track(request.form.get("program_track") or request.args.get("track") or "kids_martial_arts")
 
     if request.method == "POST":
+        program_track = _normalize_track(request.form.get("program_track", "kids_martial_arts"))
+        current_track = program_track
         class_name = request.form.get("class_name", "").strip()
         class_date = request.form.get("class_date", "").strip()
         start_time = request.form.get("start_time", "").strip()
@@ -1614,6 +1887,10 @@ def manager_classes():
 
         if not (class_name and class_date and start_time and end_time):
             flash("Class name, date, and time are required.", "error")
+            cur.close()
+            return redirect(url_for("manager_classes"))
+        if not _is_valid_time_window(start_time, end_time):
+            flash("End time must be later than start time.", "error")
             cur.close()
             return redirect(url_for("manager_classes"))
         if is_recurring_weekly and not recurrence_end_date:
@@ -1642,6 +1919,10 @@ def manager_classes():
             flash("Recurrence end date must be on or after start date.", "error")
             cur.close()
             return redirect(url_for("manager_classes"))
+        if start_day < date.today():
+            flash("Cannot create class offerings in the past.", "error")
+            cur.close()
+            return redirect(url_for("manager_classes"))
 
         inserted_count = 0
         skipped_count = 0
@@ -1652,25 +1933,48 @@ def manager_classes():
                 SELECT id
                 FROM class_offerings
                 WHERE class_name = %s
+                  AND program_track = %s
                   AND class_date = %s
                   AND start_time = %s
                   AND end_time = %s
                   AND (instructor_user_id <=> %s)
                 LIMIT 1
                 """,
-                (class_name, day_cursor, start_time, end_time, instructor_user_id),
+                (class_name, program_track, day_cursor, start_time, end_time, instructor_user_id),
             )
             exists = cur.fetchone()
             if exists:
                 skipped_count += 1
             else:
+                if instructor_user_id:
+                    cur.execute(
+                        """
+                        SELECT id
+                        FROM class_offerings
+                        WHERE instructor_user_id = %s
+                          AND class_date = %s
+                          AND NOT (end_time <= %s OR start_time >= %s)
+                        LIMIT 1
+                        """,
+                        (instructor_user_id, day_cursor, start_time, end_time),
+                    )
+                    overlapping = cur.fetchone()
+                    if overlapping:
+                        skipped_count += 1
+                        if is_recurring_weekly:
+                            day_cursor += timedelta(days=7)
+                            continue
+                        flash("Instructor already has an overlapping class at that time.", "error")
+                        cur.close()
+                        return redirect(url_for("manager_classes"))
                 cur.execute(
                     """
                     INSERT INTO class_offerings
-                      (class_name, class_date, start_time, end_time, instructor_user_id, created_by_user_id)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                      (program_track, class_name, class_date, start_time, end_time, instructor_user_id, created_by_user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
+                        program_track,
                         class_name,
                         day_cursor,
                         start_time,
@@ -1704,6 +2008,7 @@ def manager_classes():
         """
         SELECT
             co.id,
+            co.program_track,
             co.class_name,
             co.class_date,
             TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
@@ -1720,6 +2025,7 @@ def manager_classes():
         "manager_classes.html",
         employees=employees,
         offerings=offerings,
+        selected_track=current_track,
     )
 
 
@@ -1732,14 +2038,14 @@ def techniques():
     cur = db.cursor(dictionary=True)
     _ensure_feature_schema(cur)
 
-    selected_track = _normalize_track(request.args.get("track", "kid"))
+    selected_track = _normalize_track(request.args.get("track", "kids_martial_arts"))
     requested_belt = (request.args.get("belt", BELT_SEQUENCE[0]) or "").strip()
     selected_belt = requested_belt if requested_belt in BELT_SEQUENCE else BELT_SEQUENCE[0]
 
     if request.method == "POST":
         technique_name = request.form.get("technique_name", "").strip()
         description = request.form.get("description", "").strip()
-        program_track = _normalize_track(request.form.get("program_track", "kid"))
+        program_track = _normalize_track(request.form.get("program_track", "kids_martial_arts"))
         belt_name = request.form.get("belt_name", "").strip()
 
         if not technique_name:
@@ -1783,8 +2089,12 @@ def techniques():
             u.username AS created_by
         FROM techniques t
         LEFT JOIN users u ON u.id = t.created_by_user_id
-        ORDER BY t.program_track, t.belt_name, t.technique_name
+        WHERE t.program_track = %s
+          AND t.belt_name = %s
+        ORDER BY t.technique_name
         """
+        ,
+        (selected_track, selected_belt),
     )
     technique_list = cur.fetchall()
     cur.close()
@@ -1811,7 +2121,7 @@ def edit_technique(technique_id):
     description = request.form.get("description", "").strip()
     extra_comment = request.form.get("extra_comment", "").strip()
     is_active = 1 if request.form.get("is_active") == "on" else 0
-    program_track = _normalize_track(request.form.get("program_track", "kid"))
+    program_track = _normalize_track(request.form.get("program_track", "kids_martial_arts"))
     belt_name = request.form.get("belt_name", "").strip()
 
     if not technique_name:
@@ -2008,10 +2318,11 @@ def process_request(request_id, action):
 
     db = get_db()
     cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
 
     cur.execute(
         """
-        SELECT id, request_type, shift_id, requested_employee_id, status
+        SELECT id, request_type, shift_id, requested_employee_id, status, switch_target_status
         FROM requests
         WHERE id = %s
         """,
@@ -2027,6 +2338,11 @@ def process_request(request_id, action):
     if req["status"] != "pending":
         cur.close()
         flash("Request already processed.", "error")
+        return redirect(url_for("manager_dashboard"))
+
+    if req["request_type"] == "switch" and req.get("switch_target_status") != "accepted":
+        cur.close()
+        flash("Target employee must accept the shift takeover before manager approval.", "error")
         return redirect(url_for("manager_dashboard"))
 
     new_status = "approved" if action == "approve" else "rejected"
@@ -2181,7 +2497,7 @@ def parent_signup(offering_id, child_id):
 
     cur.execute(
         """
-        SELECT id, class_date
+        SELECT id, class_date, program_track
         FROM class_offerings
         WHERE id = %s
         """,
@@ -2192,9 +2508,13 @@ def parent_signup(offering_id, child_id):
         cur.close()
         flash("Class offering not found.", "error")
         return redirect(url_for("parent_dashboard"))
+    if offering["class_date"] < date.today():
+        cur.close()
+        flash("Cannot sign up for a class that already happened.", "error")
+        return redirect(url_for("parent_dashboard"))
 
     cur.execute(
-        "SELECT id FROM children WHERE id = %s AND parent_user_id = %s",
+        "SELECT id, program_track FROM children WHERE id = %s AND parent_user_id = %s",
         (child_id, session["user_id"]),
     )
     child = cur.fetchone()
@@ -2230,6 +2550,10 @@ def parent_signup(offering_id, child_id):
             """,
             (offering_id, child_id, session["user_id"]),
         )
+        cur.execute(
+            "UPDATE children SET program_track = %s WHERE id = %s",
+            (offering["program_track"], child_id),
+        )
         db.commit()
         flash("Class signup successful.", "success")
     except Exception:
@@ -2244,12 +2568,25 @@ def parent_signup(offering_id, child_id):
 @login_required
 @role_required("parent")
 def parent_dashboard():
-    # Show parent-facing academy schedule plus linked-student progress details.
+    # Show parent-facing academy schedule, class signups, attendance, and instructor notes.
     db = get_db()
     cur = db.cursor(dictionary=True)
     _ensure_feature_schema(cur)
 
-    children = _fetch_child_progress_summary(cur, parent_user_id=session["user_id"])
+    cur.execute(
+        """
+        SELECT id, child_name, program_track, belt_index
+        FROM children
+        WHERE parent_user_id = %s
+        ORDER BY child_name
+        """,
+        (session["user_id"],),
+    )
+    children = cur.fetchall()
+    for child in children:
+        child["program_track"] = _normalize_track(child.get("program_track"))
+        child["current_belt"] = _belt_name_for_index(child.get("belt_index"))
+
     calendar_start = date.today()
     calendar_end = calendar_start + timedelta(days=13)
     cur.execute(
@@ -2288,6 +2625,7 @@ def parent_dashboard():
         """
         SELECT
             co.id,
+            co.program_track,
             co.class_name,
             co.class_date,
             TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
@@ -2301,36 +2639,72 @@ def parent_dashboard():
         (date.today(),),
     )
     signup_classes = cur.fetchall()
-
-    weekly_counts = {}
-    for child in children:
+    child_ids = [c["id"] for c in children]
+    signed_up_classes_by_child = {child_id: [] for child_id in child_ids}
+    if child_ids:
+        placeholders = ", ".join(["%s"] * len(child_ids))
         cur.execute(
-            """
+            f"""
             SELECT
-                YEARWEEK(co.class_date, 1) AS week_key,
-                COUNT(*) AS class_count
+                ce.child_id,
+                co.id AS offering_id,
+                co.program_track,
+                co.class_name,
+                co.class_date,
+                TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
+                TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
+                u.username AS instructor_name,
+                ce.created_at AS enrolled_at
             FROM class_enrollments ce
             JOIN class_offerings co ON co.id = ce.offering_id
-            WHERE ce.child_id = %s
-            GROUP BY YEARWEEK(co.class_date, 1)
+            LEFT JOIN users u ON u.id = co.instructor_user_id
+            WHERE ce.child_id IN ({placeholders})
+            ORDER BY co.class_date DESC, co.start_time DESC
             """,
-            (child["id"],),
+            tuple(child_ids),
         )
-        weekly_counts[child["id"]] = {
-            row["week_key"]: int(row["class_count"]) for row in cur.fetchall()
-        }
+        signup_rows = cur.fetchall()
+        for row in signup_rows:
+            row["attendance_status"] = "Not Recorded"
+            signed_up_classes_by_child[row["child_id"]].append(row)
 
-    child_progress_rows = _fetch_child_progress_rows(cur, [c["id"] for c in children])
-    child_parent_notes = _fetch_parent_notes_rows(cur, [c["id"] for c in children])
+        cur.execute(
+            f"""
+            SELECT
+                ast.child_id,
+                ats.offering_id,
+                ast.is_present,
+                ats.created_at
+            FROM attendance_students ast
+            JOIN attendance_sessions ats ON ats.id = ast.attendance_session_id
+            WHERE ast.child_id IN ({placeholders})
+              AND ats.offering_id IS NOT NULL
+            ORDER BY ats.created_at DESC
+            """,
+            tuple(child_ids),
+        )
+        attendance_rows = cur.fetchall()
+        attendance_lookup = {}
+        for row in attendance_rows:
+            key = (row["child_id"], row["offering_id"])
+            if key not in attendance_lookup:
+                attendance_lookup[key] = "Present" if row["is_present"] else "Absent"
+
+        for child_id, rows in signed_up_classes_by_child.items():
+            for row in rows:
+                status = attendance_lookup.get((child_id, row["offering_id"]))
+                if status:
+                    row["attendance_status"] = status
+
+    child_parent_notes = _fetch_parent_notes_rows(cur, child_ids)
     cur.close()
     return render_template(
         "parent_dashboard.html",
         children=children,
-        child_progress_rows=child_progress_rows,
         academy_schedule=academy_schedule,
         academy_calendar_weeks=academy_calendar_weeks,
         signup_classes=signup_classes,
-        weekly_counts=weekly_counts,
+        signed_up_classes_by_child=signed_up_classes_by_child,
         max_classes_per_week=MAX_CLASSES_PER_WEEK,
         child_parent_notes=child_parent_notes,
     )
