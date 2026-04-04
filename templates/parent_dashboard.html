@@ -1,13 +1,12 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card">
-  <h2>Parent Dashboard</h2>
-  <p>View the academy schedule, notes from staff, and your student's skill progress.</p>
+  <h2>Parent Home</h2>
 </section>
 
 <section class="card">
   <h3>Academy Schedule: Next 2 Weeks</h3>
-  <div class="calendar-grid compact-calendar">
+  <div class="calendar-grid compact-calendar" style="margin-top: 0.75rem;">
     {% for week in academy_calendar_weeks %}
       {% for day in week %}
         <article class="calendar-day">
@@ -27,30 +26,32 @@
     {% endfor %}
   </div>
 
-  <h3>Full Academy Schedule</h3>
-  <table>
-    <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Instructor</th></tr>
-    {% for cls in academy_schedule %}
-      <tr>
-        <td>{{ cls.shift_date }}</td>
-        <td>{{ cls.start_time }}</td>
-        <td>{{ cls.end_time }}</td>
-        <td>{{ cls.class_name }}</td>
-        <td>{{ cls.employee }}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="5">No classes scheduled.</td></tr>
-    {% endfor %}
-  </table>
+  <details style="margin-top: 0.85rem;">
+    <summary><strong>View Full Academy Schedule Table</strong></summary>
+    <table style="margin-top: 0.75rem;">
+      <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Instructor</th></tr>
+      {% for cls in academy_schedule %}
+        <tr>
+          <td>{{ cls.shift_date }}</td>
+          <td>{{ cls.start_time }}</td>
+          <td>{{ cls.end_time }}</td>
+          <td>{{ cls.class_name }}</td>
+          <td>{{ cls.employee }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No classes scheduled.</td></tr>
+      {% endfor %}
+    </table>
+  </details>
 </section>
 
 <section class="card">
   <h3>Class Signup</h3>
-  <p>Weekly limit: {{ max_classes_per_week }} classes per student.</p>
-  <table>
-    <tr><th>Date</th><th>Time</th><th>Class</th><th>Instructor</th><th>Signup</th></tr>
+  <table style="margin-top: 0.65rem;">
+    <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Instructor</th><th>Signup</th></tr>
     {% for cls in signup_classes %}
       <tr>
+        <td>{{ cls.program_track|track_label }}</td>
         <td>{{ cls.class_date }}</td>
         <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
         <td>{{ cls.class_name }}</td>
@@ -58,13 +59,13 @@
         <td>
           {% for child in children %}
             <form class="inline" method="post" action="{{ url_for('parent_signup', offering_id=cls.id, child_id=child.id) }}">
-              <button type="submit">{{ child.child_name }}</button>
+              <button type="submit">Sign Up {{ child.child_name }}</button>
             </form>
           {% endfor %}
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="5">No class offerings loaded yet.</td></tr>
+      <tr><td colspan="6">No class offerings loaded yet.</td></tr>
     {% endfor %}
   </table>
 </section>
@@ -73,20 +74,30 @@
   <section class="card">
     <h3>{{ child.child_name }}</h3>
     <p>
-      Track: <strong>{{ child.program_track|title }}</strong><br />
-      Current Belt: <strong>{{ child.current_belt }}</strong><br />
-      Next Belt: <strong>{{ child.next_belt }}</strong><br />
-      Progress to Next Belt: {{ child.belt_progress_count }} / {{ child.total_skills }} skills ({{ child.belt_progress_percent|int }}%)
-      {% if child.skills_needed_for_next_belt > 0 %}
-        - {{ child.skills_needed_for_next_belt }} more to advance
-      {% endif %}
+      Track: <strong>{{ child.program_track|track_label }}</strong><br />
+      Current Belt: <strong>{{ child.current_belt }}</strong>
     </p>
-    <div class="progress-track">
-      <div class="progress-fill" style="width: {{ child.belt_progress_percent|int }}%;"></div>
-    </div>
 
-    <h4>Notes From Staff</h4>
-    <table>
+    <h4 style="margin-top: 0.8rem;">Signed-Up Classes And Attendance</h4>
+    <table style="margin-top: 0.65rem;">
+      <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Instructor</th><th>Enrolled On</th><th>Attendance</th></tr>
+      {% for row in signed_up_classes_by_child[child.id] %}
+        <tr>
+          <td>{{ row.program_track|track_label }}</td>
+          <td>{{ row.class_date }}</td>
+          <td>{{ row.start_label }}-{{ row.end_label }}</td>
+          <td>{{ row.class_name }}</td>
+          <td>{{ row.instructor_name or '-' }}</td>
+          <td>{{ row.enrolled_at }}</td>
+          <td>{{ row.attendance_status }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">No class signups yet for this student.</td></tr>
+      {% endfor %}
+    </table>
+
+    <h4 style="margin-top: 0.8rem;">Instructor Notes</h4>
+    <table style="margin-top: 0.65rem;">
       <tr><th>Sent By</th><th>Role</th><th>Sent At</th><th>Note</th></tr>
       {% for note in child_parent_notes[child.id] %}
         <tr>
@@ -96,26 +107,7 @@
           <td>{{ note.note_text }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="4">No notes from staff yet.</td></tr>
-      {% endfor %}
-    </table>
-
-    <h4>Technique Progress</h4>
-    <table>
-      <tr><th>Technique</th><th>Belt</th><th>Learned</th><th>Completed</th><th>Assigned By</th><th>Assigned At</th><th>Completed At</th><th>Notes</th></tr>
-      {% for row in child_progress_rows[child.id] %}
-        <tr>
-          <td>{{ row.technique_name }}</td>
-          <td>{{ row.program_track|title }} - {{ row.belt_name }}</td>
-          <td>{{ row.learned_count }} / 3</td>
-          <td>{{ 'Yes' if row.completed else 'No' }}</td>
-          <td>{{ row.assigned_by }}</td>
-          <td>{{ row.assigned_at }}</td>
-          <td>{{ row.completed_at or '-' }}</td>
-          <td>{{ row.notes or '-' }}</td>
-        </tr>
-      {% else %}
-        <tr><td colspan="8">No techniques assigned yet.</td></tr>
+        <tr><td colspan="4">No notes from instructors yet.</td></tr>
       {% endfor %}
     </table>
   </section>

@@ -2,47 +2,6 @@
 {% block content %}
 <section class="card">
   <h2>{{ page_title }}</h2>
-  <p>Assign belt techniques and track learning count from 1 to 3.</p>
-  <form method="post">
-    <input type="hidden" name="action" value="add_progress" />
-    <label>Student
-      <select name="child_id" id="progress-child-select" required>
-        <option value="">Select student</option>
-        {% for child in children %}
-          <option value="{{ child.id }}" data-track="{{ child.program_track }}" data-belt="{{ child.belt_name }}">
-            {{ child.child_name }} ({{ child.program_track|title }} - {{ child.belt_name }})
-          </option>
-        {% endfor %}
-      </select>
-    </label>
-
-    <label>Technique
-      <select name="technique_id" id="progress-technique-select" required>
-        <option value="">Select technique</option>
-        {% for t in techniques %}
-          <option value="{{ t.id }}" data-track="{{ t.program_track }}" data-belt="{{ t.belt_name }}">
-            {{ t.technique_name }} ({{ t.program_track|title }} - {{ t.belt_name }})
-          </option>
-        {% endfor %}
-      </select>
-    </label>
-
-    <label>Learned Count
-      <select name="learned_count" required>
-        <option value="1">1 time</option>
-        <option value="2">2 times</option>
-        <option value="3">3 times (completed)</option>
-      </select>
-    </label>
-
-    <label>Notes
-      <textarea name="notes" rows="3" placeholder="Optional notes"></textarea>
-    </label>
-
-    <button type="submit">Add Progress</button>
-  </form>
-
-  <hr />
   <h3>Send Note To Parent</h3>
   <form method="post">
     <input type="hidden" name="action" value="send_parent_note" />
@@ -62,62 +21,25 @@
 </section>
 
 <section class="card">
-  <h3>Class Attendance + Bulk Technique Update</h3>
-  <form method="post">
-    <input type="hidden" name="action" value="apply_attendance" />
-    <label>Current Class
-      <select id="attendance-class-select" required>
-        <option value="">Select class</option>
-        {% for c in today_classes %}
-          <option
-            value="{{ c.class_name }}|{{ c.class_date }}|{{ c.start_label }}|{{ c.end_label }}"
-            data-class-name="{{ c.class_name }}"
-            data-class-date="{{ c.class_date }}"
-            data-start-time="{{ c.start_label }}"
-            data-end-time="{{ c.end_label }}"
-          >
-            {{ c.class_date }} {{ c.start_label }}-{{ c.end_label }} {{ c.class_name }}
-          </option>
-        {% endfor %}
-      </select>
-    </label>
-    <input type="hidden" name="class_name" id="attendance-class-name" />
-    <input type="hidden" name="class_date" id="attendance-class-date" />
-    <input type="hidden" name="start_time" id="attendance-start-time" />
-    <input type="hidden" name="end_time" id="attendance-end-time" />
-
-    <label>Students Present
-      <select name="attendance_child_ids" multiple size="6" required>
-        {% for child in children %}
-          <option value="{{ child.id }}">{{ child.child_name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-
-    <label>Techniques Learned In Class
-      <select name="attendance_technique_ids" multiple size="6" required>
-        {% for t in techniques %}
-          <option value="{{ t.id }}">
-            {{ t.technique_name }} ({{ t.program_track|title }} - {{ t.belt_name }})
-          </option>
-        {% endfor %}
-      </select>
-    </label>
-
-    <label>Apply Learned Increment
-      <select name="learned_increment" required>
-        <option value="1">+1</option>
-        <option value="2">+2</option>
-        <option value="3">+3</option>
-      </select>
-    </label>
-
-    <button type="submit">Save Attendance & Apply Techniques</button>
-  </form>
-</section>
-
-<section class="card">
   <h3>Student Search</h3>
+  <div class="actions" style="align-items: flex-end;">
+    <label style="min-width: 190px;">Subgroup Track
+      <select id="subgroup-track">
+        <option value="">All tracks</option>
+        {% for track in program_tracks %}
+          <option value="{{ track }}" {% if track == 'little_dragons' %}selected{% endif %}>{{ track_labels[track] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="min-width: 190px;">Subgroup Belt
+      <select id="subgroup-belt">
+        <option value="">All belts</option>
+        {% for belt in belt_sequence %}
+          <option value="{{ belt }}" {% if belt == 'White' %}selected{% endif %}>{{ belt }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
   <label>
     Search students
     <input type="search" id="student-search" placeholder="Type a student name" />
@@ -125,84 +47,94 @@
 </section>
 
 {% for child in child_summary %}
-  <section class="card student-card" data-student-name="{{ child.child_name|lower }}">
-    <h3>{{ child.child_name }}</h3>
-    <p>
-      Track: <strong>{{ child.program_track|title }}</strong><br />
-      Current Belt: <strong>{{ child.current_belt }}</strong><br />
-      Next Belt: <strong>{{ child.next_belt }}</strong><br />
-      Progress to Next Belt: {{ child.belt_progress_count }} / {{ child.total_skills }} skills ({{ child.belt_progress_percent|int }}%)
-      {% if child.skills_needed_for_next_belt > 0 %}
-        - {{ child.skills_needed_for_next_belt }} more to advance
-      {% endif %}
-    </p>
-    {% if child.can_promote %}
-      <form method="post" class="inline">
-        <input type="hidden" name="action" value="promote_belt" />
-        <input type="hidden" name="child_id" value="{{ child.id }}" />
-        <button type="submit">Move To Next Belt</button>
-      </form>
-    {% endif %}
-    <div class="progress-track">
-      <div class="progress-fill" style="width: {{ child.belt_progress_percent|int }}%;"></div>
+  <section class="card student-card" data-student-name="{{ child.child_name|lower }}" data-track="{{ child.program_track }}" data-belt="{{ child.current_belt }}">
+    <div class="actions" style="justify-content: space-between; align-items: center;">
+      <div>
+        <h3>{{ child.child_name }}</h3>
+        <p class="hint">
+          Level: <strong>{{ child.current_belt }}</strong> |
+          Track: <strong>{{ child.program_track|track_label }}</strong>
+        </p>
+      </div>
+      <button type="button" class="secondary toggle-details" data-target-id="child-detail-{{ child.id }}">Show More</button>
     </div>
-    <table>
-      <tr><th>Technique</th><th>Belt</th><th>Learned</th><th>Completed</th><th>Assigned By</th><th>Assigned At</th><th>Completed At</th><th>Notes</th><th>Actions</th></tr>
-      {% for row in child_progress_rows[child.id] %}
-        <tr>
-          <td>{{ row.technique_name }}</td>
-          <td>{{ row.program_track|title }} - {{ row.belt_name }}</td>
-          <td>{{ row.learned_count }} / 3</td>
-          <td>{{ 'Yes' if row.completed else 'No' }}</td>
-          <td>{{ row.assigned_by }}</td>
-          <td>{{ row.assigned_at }}</td>
-          <td>{{ row.completed_at or '-' }}</td>
-          <td>{{ row.notes or '-' }}</td>
-          <td>
-            <form class="inline" method="post" action="{{ url_for('edit_progress', progress_id=row.id) }}">
-              <select name="technique_id" required>
-                {% for t in all_techniques %}
-                  <option value="{{ t.id }}" {% if t.id == row.technique_id %}selected{% endif %}>
-                    {{ t.technique_name }} ({{ t.program_track|title }} - {{ t.belt_name }}){% if not t.is_active %} (inactive){% endif %}
-                  </option>
-                {% endfor %}
-              </select>
-              <select name="learned_count" required>
-                <option value="0" {% if row.learned_count == 0 %}selected{% endif %}>0</option>
-                <option value="1" {% if row.learned_count == 1 %}selected{% endif %}>1</option>
-                <option value="2" {% if row.learned_count == 2 %}selected{% endif %}>2</option>
-                <option value="3" {% if row.learned_count >= 3 %}selected{% endif %}>3</option>
-              </select>
-              <input type="text" name="notes" value="{{ row.notes or '' }}" placeholder="Update notes" />
-              <button type="submit">Save</button>
-            </form>
-            <form class="inline" method="post" action="{{ url_for('toggle_progress', progress_id=row.id) }}">
-              <button type="submit">+1 Learn</button>
-            </form>
-            <form class="inline" method="post" action="{{ url_for('delete_progress', progress_id=row.id) }}">
-              <button type="submit" class="danger">Delete</button>
-            </form>
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="9">No techniques assigned yet.</td></tr>
-      {% endfor %}
-    </table>
+    <div id="child-detail-{{ child.id }}" class="hidden">
+      <p style="margin-top: 0.75rem;">
+        Next Belt: <strong>{{ child.next_belt }}</strong><br />
+        Progress to Next Belt: {{ child.belt_progress_count }} / {{ child.total_skills }} skills ({{ child.belt_progress_percent|int }}%)
+        {% if child.skills_needed_for_next_belt > 0 %}
+          - {{ child.skills_needed_for_next_belt }} more to advance
+        {% endif %}
+      </p>
+      {% if child.can_promote %}
+        <form method="post" class="inline" style="margin-top: 0.4rem;">
+          <input type="hidden" name="action" value="promote_belt" />
+          <input type="hidden" name="child_id" value="{{ child.id }}" />
+          <button type="submit">Move To Next Belt</button>
+        </form>
+      {% endif %}
+      <div class="progress-track">
+        <div class="progress-fill" style="width: {{ child.belt_progress_percent|int }}%;"></div>
+      </div>
+      <table>
+        <tr><th>Technique</th><th>Belt</th><th>Learned</th><th>Completed</th><th>Prediction</th><th>Assigned By</th><th>Assigned At</th><th>Completed At</th><th>Notes</th><th>Actions</th></tr>
+        {% for row in child_progress_rows[child.id] %}
+          <tr>
+            <td>{{ row.technique_name }}</td>
+            <td>{{ row.program_track|track_label }} - {{ row.belt_name }}</td>
+            <td>{{ row.learned_count }} / 3</td>
+            <td>{{ 'Yes' if row.completed else 'No' }}</td>
+            <td>{{ row.prediction_label }}</td>
+            <td>{{ row.assigned_by }}</td>
+            <td>{{ row.assigned_at }}</td>
+            <td>{{ row.completed_at or '-' }}</td>
+            <td>{{ row.notes or '-' }}</td>
+            <td>
+              <form class="inline" method="post" action="{{ url_for('edit_progress', progress_id=row.id) }}">
+                <select name="technique_id" required>
+                  {% for t in all_techniques %}
+                    <option value="{{ t.id }}" {% if t.id == row.technique_id %}selected{% endif %}>
+                      {{ t.technique_name }} ({{ t.program_track|track_label }} - {{ t.belt_name }}){% if not t.is_active %} (inactive){% endif %}
+                    </option>
+                  {% endfor %}
+                </select>
+                <select name="learned_count" required>
+                  <option value="0" {% if row.learned_count == 0 %}selected{% endif %}>0</option>
+                  <option value="1" {% if row.learned_count == 1 %}selected{% endif %}>1</option>
+                  <option value="2" {% if row.learned_count == 2 %}selected{% endif %}>2</option>
+                  <option value="3" {% if row.learned_count >= 3 %}selected{% endif %}>3</option>
+                </select>
+                <input type="text" name="notes" value="{{ row.notes or '' }}" placeholder="Update notes" />
+                <button type="submit">Save</button>
+              </form>
+              <form class="inline" method="post" action="{{ url_for('toggle_progress', progress_id=row.id) }}">
+                <button type="submit">+1 Learn</button>
+              </form>
+              <form class="inline" method="post" action="{{ url_for('delete_progress', progress_id=row.id) }}">
+                <button type="submit" class="danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="10">No techniques assigned yet.</td></tr>
+        {% endfor %}
+      </table>
 
-    <h4>Notes Sent To Parent</h4>
-    <table>
-      <tr><th>Sent By</th><th>Role</th><th>Sent At</th><th>Note</th></tr>
-      {% for note in child_parent_notes[child.id] %}
-        <tr>
-          <td>{{ note.author_username }}</td>
-          <td>{{ note.author_role }}</td>
-          <td>{{ note.created_at }}</td>
-          <td>{{ note.note_text }}</td>
-        </tr>
-      {% else %}
-        <tr><td colspan="4">No parent notes yet.</td></tr>
-      {% endfor %}
-    </table>
+      <h4>Notes Sent To Parent</h4>
+      <table>
+        <tr><th>Sent By</th><th>Role</th><th>Sent At</th><th>Note</th></tr>
+        {% for note in child_parent_notes[child.id] %}
+          <tr>
+            <td>{{ note.author_username }}</td>
+            <td>{{ note.author_role }}</td>
+            <td>{{ note.created_at }}</td>
+            <td>{{ note.note_text }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4">No parent notes yet.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
   </section>
 {% else %}
   <section class="card"><p>No students found.</p></section>
@@ -210,52 +142,43 @@
 
 <script>
   const studentSearch = document.getElementById('student-search');
+  const subgroupTrack = document.getElementById('subgroup-track');
+  const subgroupBelt = document.getElementById('subgroup-belt');
   const studentCards = document.querySelectorAll('.student-card');
-  const progressChildSelect = document.getElementById('progress-child-select');
-  const progressTechniqueSelect = document.getElementById('progress-technique-select');
-  const attendanceClassSelect = document.getElementById('attendance-class-select');
-  const attendanceClassName = document.getElementById('attendance-class-name');
-  const attendanceClassDate = document.getElementById('attendance-class-date');
-  const attendanceStartTime = document.getElementById('attendance-start-time');
-  const attendanceEndTime = document.getElementById('attendance-end-time');
+  const detailButtons = document.querySelectorAll('.toggle-details');
 
-  studentSearch?.addEventListener('input', () => {
+  const applyStudentFilters = () => {
     const query = studentSearch.value.trim().toLowerCase();
+    const trackFilter = subgroupTrack?.value || '';
+    const beltFilter = subgroupBelt?.value || '';
     studentCards.forEach((card) => {
       const name = card.dataset.studentName || '';
-      card.style.display = !query || name.includes(query) ? '' : 'none';
+      const track = card.dataset.track || '';
+      const belt = card.dataset.belt || '';
+      const matchesName = !query || name.includes(query);
+      const matchesTrack = !trackFilter || track === trackFilter;
+      const matchesBelt = !beltFilter || belt === beltFilter;
+      card.style.display = (matchesName && matchesTrack && matchesBelt) ? '' : 'none';
     });
-  });
-
-  const filterTechniquesForSelectedChild = () => {
-    if (!progressChildSelect || !progressTechniqueSelect) {
-      return;
-    }
-    const option = progressChildSelect.selectedOptions[0];
-    const selectedTrack = option?.dataset?.track || '';
-    const selectedBelt = option?.dataset?.belt || '';
-    Array.from(progressTechniqueSelect.options).forEach((techOption) => {
-      if (!techOption.value) {
-        techOption.hidden = false;
-        return;
-      }
-      const visible =
-        techOption.dataset.track === selectedTrack &&
-        techOption.dataset.belt === selectedBelt;
-      techOption.hidden = !visible;
-    });
-    progressTechniqueSelect.value = '';
   };
 
-  progressChildSelect?.addEventListener('change', filterTechniquesForSelectedChild);
-  filterTechniquesForSelectedChild();
+  studentSearch?.addEventListener('input', applyStudentFilters);
+  subgroupTrack?.addEventListener('change', applyStudentFilters);
+  subgroupBelt?.addEventListener('change', applyStudentFilters);
+  if (subgroupTrack && !subgroupTrack.value) subgroupTrack.value = 'little_dragons';
+  if (subgroupBelt && !subgroupBelt.value) subgroupBelt.value = 'White';
+  applyStudentFilters();
 
-  attendanceClassSelect?.addEventListener('change', () => {
-    const selected = attendanceClassSelect.selectedOptions[0];
-    attendanceClassName.value = selected?.dataset?.className || '';
-    attendanceClassDate.value = selected?.dataset?.classDate || '';
-    attendanceStartTime.value = selected?.dataset?.startTime || '';
-    attendanceEndTime.value = selected?.dataset?.endTime || '';
+  detailButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const targetId = button.dataset.targetId;
+      const target = targetId ? document.getElementById(targetId) : null;
+      if (!target) return;
+      const hidden = target.classList.contains('hidden');
+      target.classList.toggle('hidden', !hidden);
+      button.textContent = hidden ? 'Show Less' : 'Show More';
+    });
   });
+
 </script>
 {% endblock %}
