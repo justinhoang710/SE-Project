@@ -1,20 +1,34 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card">
-  <h2>Employee Dashboard</h2>
-  <div class="actions">
-    <a class="button" href="{{ url_for('employee_schedule') }}">Schedule for Staff</a>
-    <a class="button" href="{{ url_for('employee_progress') }}">Progress + Attendance</a>
-    <a class="button" href="{{ url_for('employee_attendance') }}">Attendance</a>
-    <a class="button" href="{{ url_for('techniques') }}">Add Techniques</a>
-    <a class="button" href="{{ url_for('request_switch') }}">Request Shift Switch</a>
-    <a class="button" href="{{ url_for('request_callout') }}">Submit Call-Out</a>
+  <h2>Employee Home</h2>
+  <div class="student-tile-grid" style="margin-top: 0.85rem;">
+    <a class="student-tile" href="{{ url_for('employee_attendance') }}">
+      <strong>Take Attendance</strong>
+      <span class="hint">Mark present students and apply techniques.</span>
+    </a>
+    <a class="student-tile" href="{{ url_for('employee_progress') }}">
+      <strong>Update Student Progress</strong>
+      <span class="hint">Add skill progress and send parent notes.</span>
+    </a>
+    <a class="student-tile" href="{{ url_for('request_switch') }}">
+      <strong>Request Shift Switch</strong>
+      <span class="hint">Ask another employee to cover a shift.</span>
+    </a>
+    <a class="student-tile" href="{{ url_for('request_callout') }}">
+      <strong>Submit Call-Out</strong>
+      <span class="hint">Report absence for an upcoming shift.</span>
+    </a>
+    <a class="student-tile" href="{{ url_for('techniques') }}">
+      <strong>Manage Techniques</strong>
+      <span class="hint">Add or edit the technique list.</span>
+    </a>
   </div>
 </section>
 
 <section class="card">
-  <h3>Next 2 Weeks Calendar</h3>
-  <div class="calendar-grid compact-calendar">
+  <h3>Next 2 Weeks</h3>
+  <div class="calendar-grid compact-calendar" style="margin-top: 0.75rem;">
     {% for week in calendar_weeks %}
       {% for day in week %}
         <article class="calendar-day">
@@ -24,7 +38,13 @@
           </header>
           <div class="calendar-shift-list">
             {% for shift in day.shifts %}
-              <p class="calendar-shift-item">{{ shift.start_label }}-{{ shift.end_label }} {{ shift.class_name }}</p>
+              <div class="calendar-shift-item">
+                <p>{{ shift.start_label }}-{{ shift.end_label }} {{ shift.class_name }}</p>
+                <div class="actions" style="margin-top: 0.35rem;">
+                  <a class="button secondary" href="{{ url_for('request_switch', shift_id=shift.id, shift_date=day.iso_date) }}">Switch</a>
+                  <a class="button danger" href="{{ url_for('request_callout', shift_id=shift.id, shift_date=day.iso_date) }}">Call-Out</a>
+                </div>
+              </div>
             {% else %}
               <p class="hint">No shifts</p>
             {% endfor %}
@@ -36,13 +56,42 @@
 </section>
 
 <section class="card">
-  <h3>My Requests</h3>
+  <h3>Incoming Shift Takeover Requests</h3>
+  <table style="margin-top: 0.65rem;">
+    <tr><th>Requester</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
+    {% for req in incoming_switch_requests %}
+      <tr>
+        <td>{{ req.requester }}</td>
+        <td>{{ req.shift_date }} {{ req.start_time }}-{{ req.end_time }} ({{ req.class_name }})</td>
+        <td>{{ req.reason }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('respond_switch_request', request_id=req.id, action='accept') }}">
+            <button type="submit">Accept</button>
+          </form>
+          <form class="inline" method="post" action="{{ url_for('respond_switch_request', request_id=req.id, action='reject') }}">
+            <button type="submit" class="danger">Decline</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4">No pending takeover requests.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h3>My Request History</h3>
   <table>
-    <tr><th>Type</th><th>Status</th><th>Shift</th><th>Requested Employee</th><th>Reason</th><th>Submitted</th></tr>
+    <tr><th>Request Type</th><th>Status</th><th>Shift</th><th>Requested Employee</th><th>Reason</th><th>Submitted</th></tr>
     {% for r in my_requests %}
       <tr>
         <td>{{ r.request_type }}</td>
-        <td>{{ r.status }}</td>
+        <td>
+          {{ r.status }}
+          {% if r.request_type == 'switch' and r.status == 'pending' %}
+            (target: {{ r.switch_target_status }})
+          {% endif %}
+        </td>
         <td>
           {% if r.shift_date %}
             {{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})
