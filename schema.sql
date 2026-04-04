@@ -12,8 +12,10 @@ CREATE TABLE IF NOT EXISTS children (
   id INT AUTO_INCREMENT PRIMARY KEY,
   child_name VARCHAR(100) NOT NULL,
   parent_user_id INT NOT NULL,
-  program_track ENUM('kid', 'adult') NOT NULL DEFAULT 'kid',
+  program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts',
   belt_index INT NOT NULL DEFAULT 0,
+  guardian_name VARCHAR(120) NULL,
+  contact_phone VARCHAR(40) NULL,
   FOREIGN KEY (parent_user_id) REFERENCES users(id)
 );
 
@@ -35,6 +37,7 @@ CREATE TABLE IF NOT EXISTS requests (
   requested_employee_id INT NULL,
   reason TEXT NOT NULL,
   status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+  switch_target_status ENUM('pending', 'accepted', 'rejected') NOT NULL DEFAULT 'pending',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (requester_user_id) REFERENCES users(id),
   FOREIGN KEY (shift_id) REFERENCES shifts(id),
@@ -56,7 +59,7 @@ CREATE TABLE IF NOT EXISTS techniques (
   id INT AUTO_INCREMENT PRIMARY KEY,
   technique_name VARCHAR(120) NOT NULL UNIQUE,
   description TEXT NOT NULL,
-  program_track ENUM('kid', 'adult') NOT NULL DEFAULT 'kid',
+  program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts',
   belt_name VARCHAR(40) NOT NULL DEFAULT 'White',
   created_by_user_id INT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -91,6 +94,7 @@ CREATE TABLE IF NOT EXISTS parent_notes (
 
 CREATE TABLE IF NOT EXISTS class_offerings (
   id INT AUTO_INCREMENT PRIMARY KEY,
+  program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts',
   class_name VARCHAR(120) NOT NULL,
   class_date DATE NOT NULL,
   start_time TIME NOT NULL,
@@ -152,9 +156,9 @@ CREATE TABLE IF NOT EXISTS attendance_technique_logs (
 CREATE OR REPLACE VIEW kid_belt_students AS
 SELECT id, child_name, belt_index
 FROM children
-WHERE program_track = 'kid';
+WHERE program_track IN ('little_dragons', 'kids_martial_arts', 'teen_martial_arts');
 
 CREATE OR REPLACE VIEW adult_belt_students AS
 SELECT id, child_name, belt_index
 FROM children
-WHERE program_track = 'adult';
+WHERE program_track = 'adult_martial_arts';
