@@ -63,6 +63,12 @@ def _track_label(value):
     return TRACK_LABELS.get(normalized, normalized.replace("_", " ").title())
 
 
+def _week_start_monday(target_day):
+    # Return the Monday date for the provided day.
+    safe_day = target_day if isinstance(target_day, date) else date.today()
+    return safe_day - timedelta(days=safe_day.weekday())
+
+
 def _ensure_feature_schema(cur):
     # Keep old local databases compatible by creating/altering new tables on demand.
     cur.execute(
@@ -106,6 +112,7 @@ def _ensure_feature_schema(cur):
         "ALTER TABLE techniques ADD COLUMN belt_name VARCHAR(40) NOT NULL DEFAULT 'White'",
         "ALTER TABLE child_skill_progress ADD COLUMN learned_count TINYINT NOT NULL DEFAULT 0",
         "ALTER TABLE attendance_students ADD COLUMN is_present TINYINT(1) NOT NULL DEFAULT 1",
+        "ALTER TABLE attendance_students ADD COLUMN was_signed_up TINYINT(1) NOT NULL DEFAULT 1",
         "ALTER TABLE attendance_sessions ADD COLUMN offering_id INT NULL",
         "ALTER TABLE children ADD COLUMN guardian_name VARCHAR(120) NULL",
         "ALTER TABLE children ADD COLUMN contact_phone VARCHAR(40) NULL",
@@ -133,11 +140,59 @@ def _ensure_feature_schema(cur):
         except Exception:
             pass
 
+    # Collapse duplicate progress rows before enforcing unique pair constraint.
+    try:
+        cur.execute(
+            """
+            UPDATE child_skill_progress keep_row
+            JOIN (
+              SELECT
+                child_id,
+                technique_id,
+                MAX(id) AS keep_id,
+                MAX(learned_count) AS max_learned_count,
+                MAX(completed) AS max_completed,
+                MAX(completed_at) AS max_completed_at
+              FROM child_skill_progress
+              GROUP BY child_id, technique_id
+              HAVING COUNT(*) > 1
+            ) dup
+              ON keep_row.id = dup.keep_id
+            SET
+              keep_row.learned_count = GREATEST(keep_row.learned_count, dup.max_learned_count),
+              keep_row.completed = GREATEST(keep_row.completed, dup.max_completed),
+              keep_row.completed_at = COALESCE(dup.max_completed_at, keep_row.completed_at)
+            """
+        )
+    except Exception:
+        pass
+
+    try:
+        cur.execute(
+            """
+            DELETE drop_row
+            FROM child_skill_progress drop_row
+            JOIN child_skill_progress keep_row
+              ON drop_row.child_id = keep_row.child_id
+             AND drop_row.technique_id = keep_row.technique_id
+             AND drop_row.id < keep_row.id
+            """
+        )
+    except Exception:
+        pass
+
+    try:
+        cur.execute(
+            "ALTER TABLE child_skill_progress ADD UNIQUE KEY uq_child_technique_progress (child_id, technique_id)"
+        )
+    except Exception:
+        pass
+
     # Create separate SQL views for kid/adult belt placement.
     cur.execute(
         """
         CREATE OR REPLACE VIEW kid_belt_students AS
-        SELECT id, child_name, belt_index
+        SELECT id, child_name, child_name AS student_name, belt_index
         FROM children
         WHERE program_track IN ('little_dragons', 'kids_martial_arts', 'teen_martial_arts')
         """
@@ -145,7 +200,7 @@ def _ensure_feature_schema(cur):
     cur.execute(
         """
         CREATE OR REPLACE VIEW adult_belt_students AS
-        SELECT id, child_name, belt_index
+        SELECT id, child_name, child_name AS student_name, belt_index
         FROM children
         WHERE program_track = 'adult_martial_arts'
         """
@@ -175,6 +230,7 @@ def _ensure_feature_schema(cur):
           attendance_session_id INT NOT NULL,
           child_id INT NOT NULL,
           is_present TINYINT(1) NOT NULL DEFAULT 1,
+          was_signed_up TINYINT(1) NOT NULL DEFAULT 1,
           UNIQUE KEY uq_attendance_student (attendance_session_id, child_id),
           FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id),
           FOREIGN KEY (child_id) REFERENCES children(id)
@@ -193,6 +249,19 @@ def _ensure_feature_schema(cur):
           FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id),
           FOREIGN KEY (child_id) REFERENCES children(id),
           FOREIGN KEY (technique_id) REFERENCES techniques(id)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS staff_weekly_connections (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          week_start_date DATE NOT NULL,
+          connection_text TEXT NOT NULL,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_staff_weekly_connection (user_id, week_start_date),
+          FOREIGN KEY (user_id) REFERENCES users(id)
         )
         """
     )
@@ -576,13 +645,15 @@ def login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    # Create employee/parent accounts with validation and optional child record.
+    # Create employee/parent accounts with validation and optional student record.
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         confirm_password = request.form.get("confirm_password", "")
         role = request.form.get("role", "").strip()
-        child_name = request.form.get("child_name", "").strip()
+        student_name = request.form.get("student_name", "").strip()
+        if not student_name:
+            student_name = request.form.get("child_name", "").strip()
         employee_access_password = request.form.get("employee_access_password", "").strip()
 
         if len(username) < 3:
@@ -605,8 +676,8 @@ def register():
             flash("Invalid employee access password.", "error")
             return render_template("register.html")
 
-        if role == "parent" and not child_name:
-            flash("Parent registration requires a student name.", "error")
+        if role == "parent" and not student_name:
+            flash("Parent/student registration requires a student name.", "error")
             return render_template("register.html")
 
         db = get_db()
@@ -627,7 +698,7 @@ def register():
         if role == "parent":
             cur.execute(
                 "INSERT INTO children (child_name, parent_user_id) VALUES (%s, %s)",
-                (child_name, user_id),
+                (student_name, user_id),
             )
 
         db.commit()
@@ -988,6 +1059,89 @@ def respond_switch_request(request_id, action):
     return redirect(url_for("employee_dashboard"))
 
 
+@app.route("/staff/connections", methods=["GET", "POST"])
+@login_required
+@role_required("employee", "manager")
+def staff_connections():
+    # Shared weekly board: staff update their own weekly connection, staff/manager view all.
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
+    week_start = _week_start_monday(date.today())
+
+    # Keep only current-week entries so the board clears each Monday.
+    cur.execute(
+        "DELETE FROM staff_weekly_connections WHERE week_start_date < %s",
+        (week_start,),
+    )
+    db.commit()
+
+    if request.method == "POST":
+        if session.get("role") != "employee":
+            flash("Only staff members can edit personal connections.", "error")
+            cur.close()
+            return redirect(url_for("staff_connections"))
+
+        connection_text = request.form.get("connection_text", "").strip()
+        if not connection_text:
+            flash("Please enter your personal connection text.", "error")
+            cur.close()
+            return redirect(url_for("staff_connections"))
+
+        cur.execute(
+            """
+            INSERT INTO staff_weekly_connections (user_id, week_start_date, connection_text)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE connection_text = VALUES(connection_text)
+            """,
+            (session["user_id"], week_start, connection_text),
+        )
+        db.commit()
+        flash("Weekly personal connection saved.", "success")
+        cur.close()
+        return redirect(url_for("staff_connections"))
+
+    my_connection = ""
+    if session.get("role") == "employee":
+        cur.execute(
+            """
+            SELECT connection_text
+            FROM staff_weekly_connections
+            WHERE user_id = %s
+              AND week_start_date = %s
+            LIMIT 1
+            """,
+            (session["user_id"], week_start),
+        )
+        my_row = cur.fetchone()
+        my_connection = (my_row or {}).get("connection_text", "")
+
+    cur.execute(
+        """
+        SELECT
+            u.username,
+            swc.connection_text,
+            swc.updated_at
+        FROM users u
+        LEFT JOIN staff_weekly_connections swc
+          ON swc.user_id = u.id
+         AND swc.week_start_date = %s
+        WHERE u.role = 'employee'
+        ORDER BY u.username
+        """,
+        (week_start,),
+    )
+    board_rows = cur.fetchall()
+    cur.close()
+    return render_template(
+        "staff_connections.html",
+        week_start=week_start,
+        week_end=week_start + timedelta(days=6),
+        my_connection=my_connection,
+        board_rows=board_rows,
+    )
+
+
 def _staff_progress_screen(page_title):
     # Shared employee/manager student-progress entry and listing screen.
     db = get_db()
@@ -1112,12 +1266,39 @@ def _staff_attendance_screen(page_title):
             return None
         return int(raw_id)
 
+    def fetch_linked_offering_ids(class_row):
+        # Include duplicate offerings with same class signature so roster stays consistent.
+        cur.execute(
+            """
+            SELECT id
+            FROM class_offerings
+            WHERE class_name = %s
+              AND program_track = %s
+              AND class_date = %s
+              AND start_time = %s
+              AND end_time = %s
+            """,
+            (
+                class_row["class_name"],
+                class_row["program_track"],
+                class_row["class_date"],
+                class_row["start_time"],
+                class_row["end_time"],
+            ),
+        )
+        return [int(row["id"]) for row in cur.fetchall()]
+
     if request.method == "POST":
         action = request.form.get("action", "").strip()
         class_ref = request.form.get("class_ref", "").strip()
         present_child_ids = {
             int(value)
             for value in request.form.getlist("present_child_ids")
+            if (value or "").isdigit()
+        }
+        walk_in_child_ids = {
+            int(value)
+            for value in request.form.getlist("walk_in_child_ids")
             if (value or "").isdigit()
         }
         offering_id = parse_offering_id(class_ref)
@@ -1128,7 +1309,7 @@ def _staff_attendance_screen(page_title):
 
         cur.execute(
             """
-            SELECT id, class_name, class_date, start_time, end_time
+            SELECT id, class_name, class_date, start_time, end_time, program_track
             FROM class_offerings
             WHERE id = %s
             """,
@@ -1140,9 +1321,13 @@ def _staff_attendance_screen(page_title):
             cur.close()
             return redirect(request.path)
 
+        linked_offering_ids = fetch_linked_offering_ids(class_row)
+        if not linked_offering_ids:
+            linked_offering_ids = [offering_id]
+        linked_placeholders = ", ".join(["%s"] * len(linked_offering_ids))
         cur.execute(
-            "SELECT child_id FROM class_enrollments WHERE offering_id = %s",
-            (offering_id,),
+            f"SELECT child_id FROM class_enrollments WHERE offering_id IN ({linked_placeholders})",
+            tuple(linked_offering_ids),
         )
         enrolled_ids = {int(row["child_id"]) for row in cur.fetchall()}
         if not enrolled_ids:
@@ -1153,6 +1338,21 @@ def _staff_attendance_screen(page_title):
             present_child_ids = set(enrolled_ids)
         else:
             present_child_ids = present_child_ids.intersection(enrolled_ids)
+        walk_in_child_ids = walk_in_child_ids.difference(enrolled_ids)
+        valid_walk_in_ids = set()
+        if walk_in_child_ids:
+            walk_in_placeholders = ", ".join(["%s"] * len(walk_in_child_ids))
+            cur.execute(
+                f"""
+                SELECT id
+                FROM children
+                WHERE id IN ({walk_in_placeholders})
+                  AND program_track = %s
+                """,
+                tuple(walk_in_child_ids) + (class_row["program_track"],),
+            )
+            valid_walk_in_ids = {int(row["id"]) for row in cur.fetchall()}
+        present_child_ids = present_child_ids.union(valid_walk_in_ids)
 
         cur.execute(
             """
@@ -1179,6 +1379,14 @@ def _staff_attendance_screen(page_title):
                 VALUES (%s, %s, %s)
                 """,
                 (attendance_session_id, child_id, is_present),
+            )
+        for child_id in sorted(valid_walk_in_ids):
+            cur.execute(
+                """
+                INSERT INTO attendance_students (attendance_session_id, child_id, is_present, was_signed_up)
+                VALUES (%s, %s, 1, 0)
+                """,
+                (attendance_session_id, child_id),
             )
 
         if action == "close_and_apply":
@@ -1245,9 +1453,11 @@ def _staff_attendance_screen(page_title):
         else:
             db.commit()
             present_count = len(present_child_ids)
-            absent_count = max(len(enrolled_ids) - present_count, 0)
+            present_enrolled_count = len(present_child_ids.intersection(enrolled_ids))
+            absent_count = max(len(enrolled_ids) - present_enrolled_count, 0)
+            walk_in_count = len(valid_walk_in_ids)
             flash(
-                f"Attendance saved. Present: {present_count}, Absent: {absent_count}.",
+                f"Attendance saved. Present: {present_count}, Absent: {absent_count}, Didn't sign up: {walk_in_count}.",
                 "success",
             )
             cur.close()
@@ -1264,28 +1474,50 @@ def _staff_attendance_screen(page_title):
             co.class_date,
             TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
             TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
-            COUNT(ce.id) AS enrolled_count
+            (
+                SELECT COUNT(*)
+                FROM class_enrollments ce2
+                JOIN class_offerings co2 ON co2.id = ce2.offering_id
+                WHERE co2.class_name = co.class_name
+                  AND co2.program_track = co.program_track
+                  AND co2.class_date = co.class_date
+                  AND co2.start_time = co.start_time
+                  AND co2.end_time = co.end_time
+            ) AS enrolled_count
         FROM class_offerings co
-        LEFT JOIN class_enrollments ce ON ce.offering_id = co.id
         WHERE co.class_date >= %s
-        GROUP BY co.id, co.program_track, co.class_name, co.class_date, co.start_time, co.end_time
         ORDER BY co.class_date, co.start_time, co.class_name
         """,
         (date.today(),),
     )
     current_classes = cur.fetchall()
+    class_map = {row["class_ref"]: row for row in current_classes}
+    first_with_enrollments = next(
+        (cls for cls in current_classes if int(cls.get("enrolled_count") or 0) > 0),
+        None,
+    )
     if not selected_class_ref and current_classes:
-        selected_class_ref = current_classes[0]["class_ref"]
+        selected_class_ref = (
+            first_with_enrollments["class_ref"]
+            if first_with_enrollments
+            else current_classes[0]["class_ref"]
+        )
+    elif selected_class_ref and first_with_enrollments:
+        selected_row = class_map.get(selected_class_ref)
+        if not selected_row or int(selected_row.get("enrolled_count") or 0) == 0:
+            selected_class_ref = first_with_enrollments["class_ref"]
 
     selected_offering_id = parse_offering_id(selected_class_ref)
     selected_class_info = None
     child_summary = []
+    walk_in_candidates = []
     if selected_offering_id:
         cur.execute(
             """
             SELECT id, program_track, class_name, class_date,
                    TIME_FORMAT(start_time, '%H:%i') AS start_label,
-                   TIME_FORMAT(end_time, '%H:%i') AS end_label
+                   TIME_FORMAT(end_time, '%H:%i') AS end_label,
+                   start_time, end_time
             FROM class_offerings
             WHERE id = %s
             """,
@@ -1296,17 +1528,26 @@ def _staff_attendance_screen(page_title):
             selected_class_info["program_track"] = _normalize_track(
                 selected_class_info.get("program_track")
             )
-        cur.execute(
-            """
-            SELECT c.id, c.child_name, c.program_track, c.belt_index
-            FROM class_enrollments ce
-            JOIN children c ON c.id = ce.child_id
-            WHERE ce.offering_id = %s
-            ORDER BY c.child_name
-            """,
-            (selected_offering_id,),
-        )
+            linked_offering_ids = fetch_linked_offering_ids(selected_class_info)
+            if not linked_offering_ids:
+                linked_offering_ids = [selected_offering_id]
+            linked_placeholders = ", ".join(["%s"] * len(linked_offering_ids))
+            cur.execute(
+                f"""
+                SELECT c.id, c.child_name, c.program_track, c.belt_index
+                FROM class_enrollments ce
+                JOIN children c ON c.id = ce.child_id
+                WHERE ce.offering_id IN ({linked_placeholders})
+                GROUP BY c.id, c.child_name, c.program_track, c.belt_index
+                ORDER BY c.child_name
+                """,
+                tuple(linked_offering_ids),
+            )
+            enrolled_child_ids = set()
+        else:
+            linked_offering_ids = []
         child_summary = cur.fetchall()
+        enrolled_child_ids = {int(child["id"]) for child in child_summary}
         for child in child_summary:
             track = _normalize_track(child.get("program_track"))
             belt_index = int(child.get("belt_index") or 0)
@@ -1319,6 +1560,22 @@ def _staff_attendance_screen(page_title):
             child["current_belt"] = current_belt
             child["belt_progress_count"] = completed_skills
             child["total_skills"] = total_skills
+        if selected_class_info:
+            cur.execute(
+                """
+                SELECT c.id, c.child_name
+                FROM children c
+                WHERE c.program_track = %s
+                ORDER BY c.child_name
+                """,
+                (selected_class_info["program_track"],),
+            )
+            all_track_children = cur.fetchall()
+            walk_in_candidates = [
+                child
+                for child in all_track_children
+                if int(child["id"]) not in enrolled_child_ids
+            ]
 
     if selected_class_info and selected_class_info.get("program_track"):
         cur.execute(
@@ -1350,6 +1607,7 @@ def _staff_attendance_screen(page_title):
         selected_class_ref=selected_class_ref,
         selected_class_info=selected_class_info,
         roster_students=child_summary,
+        walk_in_candidates=walk_in_candidates,
         active_techniques=active_techniques,
         belt_sequence=BELT_SEQUENCE,
         program_tracks=PROGRAM_TRACKS,
@@ -1765,10 +2023,6 @@ def manager_enroll():
                 (offering_id, child_id, session["user_id"]),
             )
             added += cur.rowcount
-            cur.execute(
-                "UPDATE children SET program_track = %s WHERE id = %s",
-                (offering["program_track"], child_id),
-            )
 
         db.commit()
         flash(f"Added {added} student(s) to class roster.", "success")
@@ -2413,7 +2667,8 @@ def attendance_summary(session_id):
             c.child_name,
             c.program_track,
             c.belt_index,
-            ast.is_present
+            ast.is_present,
+            ast.was_signed_up
         FROM attendance_students ast
         JOIN children c ON c.id = ast.child_id
         WHERE ast.attendance_session_id = %s
@@ -2525,6 +2780,22 @@ def parent_signup(offering_id, child_id):
 
     cur.execute(
         """
+        SELECT id
+        FROM class_enrollments
+        WHERE offering_id = %s
+          AND child_id = %s
+        LIMIT 1
+        """,
+        (offering_id, child_id),
+    )
+    existing_enrollment = cur.fetchone()
+    if existing_enrollment:
+        cur.close()
+        flash("Student is already enrolled in this class.", "info")
+        return redirect(url_for("parent_dashboard"))
+
+    cur.execute(
+        """
         SELECT COUNT(*) AS weekly_count
         FROM class_enrollments ce
         JOIN class_offerings co ON co.id = ce.offering_id
@@ -2550,15 +2821,14 @@ def parent_signup(offering_id, child_id):
             """,
             (offering_id, child_id, session["user_id"]),
         )
-        cur.execute(
-            "UPDATE children SET program_track = %s WHERE id = %s",
-            (offering["program_track"], child_id),
-        )
         db.commit()
         flash("Class signup successful.", "success")
-    except Exception:
+    except Exception as exc:
         db.rollback()
-        flash("Class signup failed (you may already be enrolled).", "error")
+        if getattr(exc, "errno", None) == 1062:
+            flash("Student is already enrolled in this class.", "info")
+        else:
+            flash(f"Class signup failed: {exc}", "error")
     finally:
         cur.close()
     return redirect(url_for("parent_dashboard"))
@@ -2628,6 +2898,7 @@ def parent_dashboard():
             co.program_track,
             co.class_name,
             co.class_date,
+            YEARWEEK(co.class_date, 1) AS week_key,
             TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
             TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
             u.username AS instructor_name
@@ -2641,8 +2912,29 @@ def parent_dashboard():
     signup_classes = cur.fetchall()
     child_ids = [c["id"] for c in children]
     signed_up_classes_by_child = {child_id: [] for child_id in child_ids}
+    enrolled_lookup = {}
+    weekly_counts = {}
+    signup_block_reasons = {}
     if child_ids:
         placeholders = ", ".join(["%s"] * len(child_ids))
+        cur.execute(
+            f"""
+            SELECT
+                ce.child_id,
+                YEARWEEK(co.class_date, 1) AS week_key,
+                COUNT(*) AS week_count
+            FROM class_enrollments ce
+            JOIN class_offerings co ON co.id = ce.offering_id
+            WHERE ce.child_id IN ({placeholders})
+            GROUP BY ce.child_id, YEARWEEK(co.class_date, 1)
+            """,
+            tuple(child_ids),
+        )
+        for row in cur.fetchall():
+            weekly_counts[(int(row["child_id"]), int(row["week_key"]))] = int(
+                row["week_count"] or 0
+            )
+
         cur.execute(
             f"""
             SELECT
@@ -2667,6 +2959,9 @@ def parent_dashboard():
         for row in signup_rows:
             row["attendance_status"] = "Not Recorded"
             signed_up_classes_by_child[row["child_id"]].append(row)
+            key_child = int(row["child_id"])
+            key_offering = int(row["offering_id"])
+            enrolled_lookup.setdefault(key_child, set()).add(key_offering)
 
         cur.execute(
             f"""
@@ -2674,6 +2969,7 @@ def parent_dashboard():
                 ast.child_id,
                 ats.offering_id,
                 ast.is_present,
+                ast.was_signed_up,
                 ats.created_at
             FROM attendance_students ast
             JOIN attendance_sessions ats ON ats.id = ast.attendance_session_id
@@ -2688,13 +2984,34 @@ def parent_dashboard():
         for row in attendance_rows:
             key = (row["child_id"], row["offering_id"])
             if key not in attendance_lookup:
-                attendance_lookup[key] = "Present" if row["is_present"] else "Absent"
+                if row["is_present"] and not row.get("was_signed_up", 1):
+                    attendance_lookup[key] = "Present (Didn't sign up)"
+                else:
+                    attendance_lookup[key] = "Present" if row["is_present"] else "Absent"
 
         for child_id, rows in signed_up_classes_by_child.items():
             for row in rows:
                 status = attendance_lookup.get((child_id, row["offering_id"]))
                 if status:
                     row["attendance_status"] = status
+
+    for cls in signup_classes:
+        class_id = int(cls["id"])
+        class_week_key = int(cls.get("week_key") or 0)
+        class_date = cls.get("class_date")
+        for child in children:
+            child_id = int(child["id"])
+            key = f"{child_id}:{class_id}"
+            child_enrolled = enrolled_lookup.get(child_id, set())
+            if class_id in child_enrolled:
+                signup_block_reasons[key] = "Already enrolled"
+                continue
+            if class_date and class_date < date.today():
+                signup_block_reasons[key] = "Class already happened"
+                continue
+            week_count = weekly_counts.get((child_id, class_week_key), 0)
+            if week_count >= MAX_CLASSES_PER_WEEK:
+                signup_block_reasons[key] = f"Weekly limit ({MAX_CLASSES_PER_WEEK}) reached"
 
     child_parent_notes = _fetch_parent_notes_rows(cur, child_ids)
     cur.close()
@@ -2705,6 +3022,8 @@ def parent_dashboard():
         academy_calendar_weeks=academy_calendar_weeks,
         signup_classes=signup_classes,
         signed_up_classes_by_child=signed_up_classes_by_child,
+        enrolled_lookup=enrolled_lookup,
+        signup_block_reasons=signup_block_reasons,
         max_classes_per_week=MAX_CLASSES_PER_WEEK,
         child_parent_notes=child_parent_notes,
     )
