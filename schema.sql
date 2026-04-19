@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS child_skill_progress (
   completed TINYINT(1) NOT NULL DEFAULT 0,
   completed_at TIMESTAMP NULL,
   notes TEXT NULL,
+  UNIQUE KEY uq_child_technique_progress (child_id, technique_id),
   FOREIGN KEY (child_id) REFERENCES children(id),
   FOREIGN KEY (technique_id) REFERENCES techniques(id),
   FOREIGN KEY (assigned_by_user_id) REFERENCES users(id)
@@ -136,6 +137,7 @@ CREATE TABLE IF NOT EXISTS attendance_students (
   attendance_session_id INT NOT NULL,
   child_id INT NOT NULL,
   is_present TINYINT(1) NOT NULL DEFAULT 1,
+  was_signed_up TINYINT(1) NOT NULL DEFAULT 1,
   UNIQUE KEY uq_attendance_student (attendance_session_id, child_id),
   FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id),
   FOREIGN KEY (child_id) REFERENCES children(id)
@@ -153,12 +155,22 @@ CREATE TABLE IF NOT EXISTS attendance_technique_logs (
   FOREIGN KEY (technique_id) REFERENCES techniques(id)
 );
 
+CREATE TABLE IF NOT EXISTS staff_weekly_connections (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  week_start_date DATE NOT NULL,
+  connection_text TEXT NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_staff_weekly_connection (user_id, week_start_date),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 CREATE OR REPLACE VIEW kid_belt_students AS
-SELECT id, child_name, belt_index
+SELECT id, child_name, child_name AS student_name, belt_index
 FROM children
 WHERE program_track IN ('little_dragons', 'kids_martial_arts', 'teen_martial_arts');
 
 CREATE OR REPLACE VIEW adult_belt_students AS
-SELECT id, child_name, belt_index
+SELECT id, child_name, child_name AS student_name, belt_index
 FROM children
 WHERE program_track = 'adult_martial_arts';
