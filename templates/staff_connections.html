@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Weekly Personal Connections</h2>
+  <p class="hint">Week: {{ week_start }} to {{ week_end }}. This board resets every Monday.</p>
+</section>
+
+{% if session.get('role') == 'employee' %}
+<section class="card">
+  <h3>My Connection</h3>
+  <form method="post">
+    <label>What is your personal connection this week?
+      <textarea name="connection_text" rows="4" maxlength="1500" required>{{ my_connection }}</textarea>
+    </label>
+    <button type="submit">Save Weekly Connection</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="card">
+  <h3>Team Connection Chart</h3>
+  <table>
+    <tr><th>Staff Member</th><th>What They Wrote</th><th>Last Updated</th></tr>
+    {% for row in board_rows %}
+      <tr>
+        <td>{{ row.username }}</td>
+        <td>{{ row.connection_text or '-' }}</td>
+        <td>{{ row.updated_at or '-' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="3">No staff found.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

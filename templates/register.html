@@ -27,8 +27,8 @@
       <input type="password" name="employee_access_password" id="employee-access-password" />
     </label>
 
-    <label id="child-name-wrap">Student Name (required for parent/student sign-up)
-      <input type="text" name="child_name" />
+    <label id="student-name-wrap">Student Name (required for parent/student sign-up)
+      <input type="text" name="student_name" />
     </label>
 
     <button type="submit">Create Account</button>
@@ -38,18 +38,18 @@
 
 <script>
   const roleSelect = document.getElementById('role');
-  const childWrap = document.getElementById('child-name-wrap');
+  const studentWrap = document.getElementById('student-name-wrap');
   const employeeAccessWrap = document.getElementById('employee-access-wrap');
   const employeeAccessInput = document.getElementById('employee-access-password');
-  const childInput = childWrap?.querySelector('input[name=\"child_name\"]');
+  const studentInput = studentWrap?.querySelector('input[name=\"student_name\"]');
 
   function updateChildVisibility() {
     const isParent = roleSelect.value === 'parent';
     const isEmployee = roleSelect.value === 'employee';
 
-    childWrap.style.display = isParent ? 'grid' : 'none';
-    if (childInput) {
-      childInput.required = isParent;
+    studentWrap.style.display = isParent ? 'grid' : 'none';
+    if (studentInput) {
+      studentInput.required = isParent;
     }
 
     employeeAccessWrap.style.display = isEmployee ? 'grid' : 'none';

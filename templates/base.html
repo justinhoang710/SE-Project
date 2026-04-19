@@ -78,6 +78,7 @@
           {% if session.get('role') == 'employee' %}
           { label: 'Attendance', hint: 'Take class attendance', href: {{ url_for('employee_attendance')|tojson }}, endpoints: ['employee_attendance', 'attendance_summary'] },
           { label: 'Progress', hint: 'Track student growth', href: {{ url_for('employee_progress')|tojson }}, endpoints: ['employee_progress'] },
+          { label: 'Weekly Connections', hint: 'Staff weekly board', href: {{ url_for('staff_connections')|tojson }}, endpoints: ['staff_connections'] },
           { label: 'Techniques', hint: 'Manage techniques', href: {{ url_for('techniques')|tojson }}, endpoints: ['techniques'] },
           { label: 'Shift Switch', hint: 'Request schedule swap', href: {{ url_for('request_switch')|tojson }}, endpoints: ['request_switch'] },
           { label: 'Call-Out', hint: 'Submit absence', href: {{ url_for('request_callout')|tojson }}, endpoints: ['request_callout'] },
@@ -87,6 +88,7 @@
           { label: 'Enroll Students', hint: 'Add students to classes', href: {{ url_for('manager_enroll')|tojson }}, endpoints: ['manager_enroll'] },
           { label: 'Attendance', hint: 'Track attendance', href: {{ url_for('manager_attendance')|tojson }}, endpoints: ['manager_attendance', 'attendance_summary'] },
           { label: 'Student Progress', hint: 'Promotions and notes', href: {{ url_for('manager_progress')|tojson }}, endpoints: ['manager_progress'] },
+          { label: 'Weekly Connections', hint: 'Staff weekly board', href: {{ url_for('staff_connections')|tojson }}, endpoints: ['staff_connections'] },
           { label: 'Techniques', hint: 'Edit technique list', href: {{ url_for('techniques')|tojson }}, endpoints: ['techniques'] },
           {% elif session.get('role') == 'parent' %}
           { label: 'My Child Dashboard', hint: 'Schedule and attendance', href: {{ url_for('parent_dashboard')|tojson }}, endpoints: ['parent_dashboard'] },
