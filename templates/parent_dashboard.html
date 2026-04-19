@@ -58,8 +58,14 @@
         <td>{{ cls.instructor_name or '-' }}</td>
         <td>
           {% for child in children %}
+            {% set signup_key = child.id|string ~ ':' ~ cls.id|string %}
+            {% set block_reason = signup_block_reasons.get(signup_key) %}
             <form class="inline" method="post" action="{{ url_for('parent_signup', offering_id=cls.id, child_id=child.id) }}">
-              <button type="submit">Sign Up {{ child.child_name }}</button>
+              {% if block_reason %}
+                <button type="submit" disabled>{{ child.child_name }}: {{ block_reason }}</button>
+              {% else %}
+                <button type="submit">Sign Up {{ child.child_name }}</button>
+              {% endif %}
             </form>
           {% endfor %}
         </td>

@@ -9,12 +9,13 @@
 <section class="card">
   <h3>Class Summary</h3>
   <table>
-    <tr><th>Student</th><th>Track</th><th>Belt</th><th>Present</th><th>Techniques Learned In Class</th></tr>
+    <tr><th>Student</th><th>Track</th><th>Belt</th><th>Signup Status</th><th>Present</th><th>Techniques Learned In Class</th></tr>
     {% for student in students %}
       <tr>
         <td>{{ student.child_name }}</td>
         <td>{{ student.program_track|track_label }}</td>
         <td>{{ student.current_belt }}</td>
+        <td>{{ 'Signed up' if student.was_signed_up else "Didn't sign up" }}</td>
         <td>{{ 'Yes' if student.is_present else 'No' }}</td>
         <td>
           {% if student.techniques %}
@@ -27,7 +28,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="5">No students found for this class session.</td></tr>
+      <tr><td colspan="6">No students found for this class session.</td></tr>
     {% endfor %}
   </table>
 </section>

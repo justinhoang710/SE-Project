@@ -114,6 +114,17 @@
         <tr><td colspan="8">No students enrolled in this class.</td></tr>
       {% endfor %}
     </table>
+
+    <label style="margin-top: 1rem;">Walk-In Students (Present, Didn't Sign Up)
+      <select id="walk-in-child-ids" name="walk_in_child_ids" multiple size="6" {% if not current_classes %}disabled{% endif %}>
+        {% for child in walk_in_candidates %}
+          <option value="{{ child.id }}">{{ child.child_name }}</option>
+        {% else %}
+          <option value="" disabled>No additional students in this track</option>
+        {% endfor %}
+      </select>
+    </label>
+    <p class="hint">Select students who attended without class signup. They will be saved as Present and marked "Didn't sign up".</p>
   </form>
 </section>
 
@@ -121,6 +132,7 @@
   const presentCheckboxes = document.querySelectorAll('.present-checkbox');
   const markAllPresentBtn = document.getElementById('mark-all-present');
   const clearAllPresentBtn = document.getElementById('clear-all-present');
+  const walkInSelect = document.getElementById('walk-in-child-ids');
   const studentRows = document.querySelectorAll('.student-row');
   const techniqueCheckboxes = document.querySelectorAll('.technique-checkbox');
   const selectAllTechniqueBtns = document.querySelectorAll('.technique-select-all');
@@ -179,6 +191,11 @@
     presentCheckboxes.forEach((cb) => {
       cb.checked = false;
     });
+    if (walkInSelect) {
+      Array.from(walkInSelect.options).forEach((opt) => {
+        opt.selected = false;
+      });
+    }
     syncInputsByAttendance();
   });
 
