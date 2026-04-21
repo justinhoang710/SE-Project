@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS staff_class_signups (
 CREATE OR REPLACE VIEW kid_belt_students AS
 SELECT id, child_name, child_name AS student_name, belt_index
 FROM children
-WHERE program_track IN ('little_dragons', 'kids_martial_arts', 'teen_martial_arts');
+WHERE program_track IN ('little_dragons', 'kids_martial_arts');
 
 CREATE OR REPLACE VIEW adult_belt_students AS
 SELECT id, child_name, child_name AS student_name, belt_index
