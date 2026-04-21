@@ -165,6 +165,16 @@ CREATE TABLE IF NOT EXISTS staff_weekly_connections (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS staff_class_signups (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  offering_id INT NOT NULL,
+  staff_user_id INT NOT NULL,
+  signed_up_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_staff_class_signup (offering_id, staff_user_id),
+  FOREIGN KEY (offering_id) REFERENCES class_offerings(id),
+  FOREIGN KEY (staff_user_id) REFERENCES users(id)
+);
+
 CREATE OR REPLACE VIEW kid_belt_students AS
 SELECT id, child_name, child_name AS student_name, belt_index
 FROM children

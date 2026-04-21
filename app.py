@@ -265,6 +265,19 @@ def _ensure_feature_schema(cur):
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS staff_class_signups (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          offering_id INT NOT NULL,
+          staff_user_id INT NOT NULL,
+          signed_up_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_staff_class_signup (offering_id, staff_user_id),
+          FOREIGN KEY (offering_id) REFERENCES class_offerings(id),
+          FOREIGN KEY (staff_user_id) REFERENCES users(id)
+        )
+        """
+    )
 
 
 def _predict_test_ready_date(progress_row):
@@ -645,16 +658,15 @@ def login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    # Create employee/parent accounts with validation and optional student record.
+    # Public registration only for parent accounts.
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         confirm_password = request.form.get("confirm_password", "")
-        role = request.form.get("role", "").strip()
+        role = "parent"
         student_name = request.form.get("student_name", "").strip()
         if not student_name:
             student_name = request.form.get("child_name", "").strip()
-        employee_access_password = request.form.get("employee_access_password", "").strip()
 
         if len(username) < 3:
             flash("Username must be at least 3 characters.", "error")
@@ -668,15 +680,7 @@ def register():
             flash("Passwords do not match.", "error")
             return render_template("register.html")
 
-        if role not in {"employee", "parent"}:
-            flash("Invalid role selected.", "error")
-            return render_template("register.html")
-
-        if role == "employee" and employee_access_password != "test":
-            flash("Invalid employee access password.", "error")
-            return render_template("register.html")
-
-        if role == "parent" and not student_name:
+        if not student_name:
             flash("Parent/student registration requires a student name.", "error")
             return render_template("register.html")
 
@@ -731,6 +735,67 @@ def dashboard():
 
     flash("Unknown role.", "error")
     return redirect(url_for("logout"))
+
+
+@app.route("/manager/staff-accounts", methods=["GET", "POST"])
+@login_required
+@role_required("manager")
+def manager_staff_accounts():
+    # Manager-only staff account creation for employee/manager roles.
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        role = request.form.get("role", "").strip()
+
+        if role not in {"employee", "manager"}:
+            flash("Please choose employee or manager account type.", "error")
+            cur.close()
+            return redirect(url_for("manager_staff_accounts"))
+        if len(username) < 3:
+            flash("Username must be at least 3 characters.", "error")
+            cur.close()
+            return redirect(url_for("manager_staff_accounts"))
+        if len(password) < 6:
+            flash("Password must be at least 6 characters.", "error")
+            cur.close()
+            return redirect(url_for("manager_staff_accounts"))
+        if password != confirm_password:
+            flash("Passwords do not match.", "error")
+            cur.close()
+            return redirect(url_for("manager_staff_accounts"))
+
+        cur.execute("SELECT id FROM users WHERE username = %s", (username,))
+        existing = cur.fetchone()
+        if existing:
+            flash("Username already exists.", "error")
+            cur.close()
+            return redirect(url_for("manager_staff_accounts"))
+
+        cur.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",
+            (username, hash_password(password), role),
+        )
+        db.commit()
+        flash(f"{role.title()} account created for {username}.", "success")
+        cur.close()
+        return redirect(url_for("manager_staff_accounts"))
+
+    cur.execute(
+        """
+        SELECT username, role
+        FROM users
+        WHERE role IN ('manager', 'employee')
+        ORDER BY role, username
+        """
+    )
+    staff_accounts = cur.fetchall()
+    cur.close()
+    return render_template("manager_staff_accounts.html", staff_accounts=staff_accounts)
 
 
 # -----------------------------
@@ -1057,6 +1122,129 @@ def respond_switch_request(request_id, action):
 
     cur.close()
     return redirect(url_for("employee_dashboard"))
+
+
+@app.route("/staff/class-signup", methods=["GET", "POST"])
+@login_required
+@role_required("employee", "manager")
+def staff_class_signup():
+    # Allow staff to sign up for published classes as participants.
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
+
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        offering_id = request.form.get("offering_id", type=int)
+        if not offering_id:
+            flash("Please choose a valid class.", "error")
+            cur.close()
+            return redirect(url_for("staff_class_signup"))
+
+        cur.execute(
+            """
+            SELECT id, class_date
+            FROM class_offerings
+            WHERE id = %s
+            """,
+            (offering_id,),
+        )
+        offering = cur.fetchone()
+        if not offering:
+            flash("Class offering not found.", "error")
+            cur.close()
+            return redirect(url_for("staff_class_signup"))
+        if offering["class_date"] < date.today():
+            flash("Cannot sign up for a class that already happened.", "error")
+            cur.close()
+            return redirect(url_for("staff_class_signup"))
+
+        if action == "cancel":
+            cur.execute(
+                """
+                DELETE FROM staff_class_signups
+                WHERE offering_id = %s
+                  AND staff_user_id = %s
+                """,
+                (offering_id, session["user_id"]),
+            )
+            db.commit()
+            flash("Staff class signup removed.", "success")
+            cur.close()
+            return redirect(url_for("staff_class_signup"))
+
+        cur.execute(
+            """
+            INSERT IGNORE INTO staff_class_signups (offering_id, staff_user_id)
+            VALUES (%s, %s)
+            """,
+            (offering_id, session["user_id"]),
+        )
+        db.commit()
+        if cur.rowcount:
+            flash("Signed up for class.", "success")
+        else:
+            flash("You are already signed up for this class.", "info")
+        cur.close()
+        return redirect(url_for("staff_class_signup"))
+
+    cur.execute(
+        """
+        SELECT
+            co.id,
+            co.class_name,
+            co.class_date,
+            co.program_track,
+            TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
+            TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
+            u.username AS instructor_name
+        FROM class_offerings co
+        LEFT JOIN users u ON u.id = co.instructor_user_id
+        WHERE co.class_date >= %s
+        ORDER BY co.class_date, co.start_time, co.class_name
+        """,
+        (date.today(),),
+    )
+    upcoming_classes = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT offering_id
+        FROM staff_class_signups
+        WHERE staff_user_id = %s
+        """,
+        (session["user_id"],),
+    )
+    signed_up_ids = {int(row["offering_id"]) for row in cur.fetchall()}
+
+    cur.execute(
+        """
+        SELECT
+            scs.offering_id,
+            co.class_name,
+            co.class_date,
+            co.program_track,
+            TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
+            TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
+            u.username AS instructor_name,
+            scs.signed_up_at
+        FROM staff_class_signups scs
+        JOIN class_offerings co ON co.id = scs.offering_id
+        LEFT JOIN users u ON u.id = co.instructor_user_id
+        WHERE scs.staff_user_id = %s
+          AND co.class_date >= %s
+        ORDER BY co.class_date, co.start_time
+        """,
+        (session["user_id"], date.today()),
+    )
+    my_class_signups = cur.fetchall()
+    cur.close()
+    return render_template(
+        "staff_class_signup.html",
+        upcoming_classes=upcoming_classes,
+        my_class_signups=my_class_signups,
+        signed_up_ids=signed_up_ids,
+    )
 
 
 @app.route("/staff/connections", methods=["GET", "POST"])
