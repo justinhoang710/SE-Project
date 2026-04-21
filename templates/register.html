@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card narrow">
-  <h2>Create Account</h2>
+  <h2>Create Parent Account</h2>
   <form method="post" style="margin-top: 0.85rem;">
     <label>Username
       <input type="text" name="username" minlength="3" autocomplete="username" required />
@@ -15,50 +15,13 @@
       <input type="password" name="confirm_password" minlength="6" autocomplete="new-password" required />
     </label>
 
-    <label>Account Type
-      <select name="role" id="role" required>
-        <option value="">Select account type</option>
-        <option value="employee">Employee</option>
-        <option value="parent">Parent/Student</option>
-      </select>
-    </label>
-
-    <label id="employee-access-wrap">Employee Access Password (required for employee sign-up)
-      <input type="password" name="employee_access_password" id="employee-access-password" />
-    </label>
-
-    <label id="student-name-wrap">Student Name (required for parent/student sign-up)
+    <label>Student Name
       <input type="text" name="student_name" />
     </label>
 
     <button type="submit">Create Account</button>
   </form>
   <p class="hint" style="margin-top: 0.6rem;"><a href="{{ url_for('login') }}">Back to sign in</a></p>
+  <p class="hint" style="margin-top: 0.25rem;">Staff and manager accounts are created by an existing manager.</p>
 </section>
-
-<script>
-  const roleSelect = document.getElementById('role');
-  const studentWrap = document.getElementById('student-name-wrap');
-  const employeeAccessWrap = document.getElementById('employee-access-wrap');
-  const employeeAccessInput = document.getElementById('employee-access-password');
-  const studentInput = studentWrap?.querySelector('input[name=\"student_name\"]');
-
-  function updateChildVisibility() {
-    const isParent = roleSelect.value === 'parent';
-    const isEmployee = roleSelect.value === 'employee';
-
-    studentWrap.style.display = isParent ? 'grid' : 'none';
-    if (studentInput) {
-      studentInput.required = isParent;
-    }
-
-    employeeAccessWrap.style.display = isEmployee ? 'grid' : 'none';
-    if (employeeAccessInput) {
-      employeeAccessInput.required = isEmployee;
-    }
-  }
-
-  roleSelect.addEventListener('change', updateChildVisibility);
-  updateChildVisibility();
-</script>
 {% endblock %}
