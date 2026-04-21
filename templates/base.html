@@ -77,6 +77,7 @@
           { label: 'Dashboard', hint: 'Overview', href: {{ url_for('dashboard')|tojson }}, endpoints: ['dashboard', 'manager_dashboard', 'employee_dashboard', 'parent_dashboard'] },
           {% if session.get('role') == 'employee' %}
           { label: 'Attendance', hint: 'Take class attendance', href: {{ url_for('employee_attendance')|tojson }}, endpoints: ['employee_attendance', 'attendance_summary'] },
+          { label: 'Class Signup', hint: 'Join classes as staff', href: {{ url_for('staff_class_signup')|tojson }}, endpoints: ['staff_class_signup'] },
           { label: 'Progress', hint: 'Track student growth', href: {{ url_for('employee_progress')|tojson }}, endpoints: ['employee_progress'] },
           { label: 'Weekly Connections', hint: 'Staff weekly board', href: {{ url_for('staff_connections')|tojson }}, endpoints: ['staff_connections'] },
           { label: 'Techniques', hint: 'Manage techniques', href: {{ url_for('techniques')|tojson }}, endpoints: ['techniques'] },
@@ -87,8 +88,10 @@
           { label: 'Class Offerings', hint: 'Open classes for signup', href: {{ url_for('manager_classes')|tojson }}, endpoints: ['manager_classes'] },
           { label: 'Enroll Students', hint: 'Add students to classes', href: {{ url_for('manager_enroll')|tojson }}, endpoints: ['manager_enroll'] },
           { label: 'Attendance', hint: 'Track attendance', href: {{ url_for('manager_attendance')|tojson }}, endpoints: ['manager_attendance', 'attendance_summary'] },
+          { label: 'Class Signup', hint: 'Join classes as staff', href: {{ url_for('staff_class_signup')|tojson }}, endpoints: ['staff_class_signup'] },
           { label: 'Student Progress', hint: 'Promotions and notes', href: {{ url_for('manager_progress')|tojson }}, endpoints: ['manager_progress'] },
           { label: 'Weekly Connections', hint: 'Staff weekly board', href: {{ url_for('staff_connections')|tojson }}, endpoints: ['staff_connections'] },
+          { label: 'Staff Accounts', hint: 'Create manager/employee logins', href: {{ url_for('manager_staff_accounts')|tojson }}, endpoints: ['manager_staff_accounts'] },
           { label: 'Techniques', hint: 'Edit technique list', href: {{ url_for('techniques')|tojson }}, endpoints: ['techniques'] },
           {% elif session.get('role') == 'parent' %}
           { label: 'My Child Dashboard', hint: 'Schedule and attendance', href: {{ url_for('parent_dashboard')|tojson }}, endpoints: ['parent_dashboard'] },

@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h2>Staff Class Signup</h2>
+  <p class="hint">Staff members can register for classes as participants.</p>
+</section>
+
+<section class="card">
+  <h3>Upcoming Classes</h3>
+  <table>
+    <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Instructor</th><th>Action</th></tr>
+    {% for cls in upcoming_classes %}
+      <tr>
+        <td>{{ cls.program_track|track_label }}</td>
+        <td>{{ cls.class_date }}</td>
+        <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
+        <td>{{ cls.class_name }}</td>
+        <td>{{ cls.instructor_name or '-' }}</td>
+        <td>
+          {% if cls.id in signed_up_ids %}
+            <span class="hint">Signed up</span>
+          {% else %}
+            <form class="inline" method="post">
+              <input type="hidden" name="offering_id" value="{{ cls.id }}" />
+              <button type="submit" name="action" value="signup">Sign Up</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6">No upcoming classes available.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h3>My Staff Class Signups</h3>
+  <table>
+    <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Instructor</th><th>Signed Up At</th><th>Action</th></tr>
+    {% for row in my_class_signups %}
+      <tr>
+        <td>{{ row.program_track|track_label }}</td>
+        <td>{{ row.class_date }}</td>
+        <td>{{ row.start_label }}-{{ row.end_label }}</td>
+        <td>{{ row.class_name }}</td>
+        <td>{{ row.instructor_name or '-' }}</td>
+        <td>{{ row.signed_up_at }}</td>
+        <td>
+          <form class="inline" method="post">
+            <input type="hidden" name="offering_id" value="{{ row.offering_id }}" />
+            <button type="submit" name="action" value="cancel" class="danger">Cancel</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7">No class signups yet.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}
