@@ -2,18 +2,27 @@
 {% block content %}
 <section class="card">
   <h2>Schedule for Staff</h2>
-  <table>
-    <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th></tr>
-    {% for s in my_shifts %}
-      <tr>
-        <td>{{ s.shift_date }}</td>
-        <td>{{ s.start_time }}</td>
-        <td>{{ s.end_time }}</td>
-        <td>{{ s.class_name }}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="4">No shifts assigned.</td></tr>
-    {% endfor %}
-  </table>
+  <div class="section-tools">
+    <label>Search Shifts
+      <input type="search" placeholder="Date, time, class" data-table-filter="employee-shifts-table" />
+    </label>
+  </div>
+  <div class="table-shell">
+    <table id="employee-shifts-table">
+      <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th></tr>
+      <tbody>
+      {% for s in my_shifts %}
+        <tr>
+          <td>{{ s.shift_date }}</td>
+          <td>{{ s.start_time }}</td>
+          <td>{{ s.end_time }}</td>
+          <td>{{ s.class_name }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No shifts assigned.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endblock %}
