@@ -2,11 +2,7 @@
 {% block content %}
 <section class="card">
   <h2>{{ page_title }}</h2>
-</section>
-
-<section class="card">
-  <h3>Select Class</h3>
-  <form method="get">
+  <form method="get" class="section-tools" style="margin-top: 0.55rem;">
     <label>Current Class
       <select name="class_ref" onchange="this.form.submit()" {% if not current_classes %}disabled{% else %}required{% endif %}>
         {% if current_classes %}
@@ -20,111 +16,102 @@
         {% endif %}
       </select>
     </label>
+    <div class="hint" style="align-self: end;">
+      {% if selected_class_info %}
+        {{ selected_class_info.class_date }} | {{ selected_class_info.start_label }}-{{ selected_class_info.end_label }} | {{ selected_class_info.program_track|track_label }}
+      {% else %}
+        No classes available.
+      {% endif %}
+    </div>
   </form>
-  {% if selected_class_info %}
-    <p class="hint">Selected: {{ selected_class_info.class_date }} {{ selected_class_info.start_label }}-{{ selected_class_info.end_label }} {{ selected_class_info.class_name }} - {{ selected_class_info.program_track|track_label }}</p>
-  {% else %}
-    <p class="hint">No classes available.</p>
-  {% endif %}
 </section>
 
 <section class="card">
-  <h3>Attendance + End Of Class Techniques</h3>
-  <form method="post" id="attendance-form">
+  <h3>Attendance</h3>
+  <form method="post" id="attendance-form" class="stack">
     <input type="hidden" name="class_ref" value="{{ selected_class_ref }}" />
-
-    <div class="actions">
-      <button type="button" id="mark-all-present" {% if not current_classes %}disabled{% endif %}>Mark All Present</button>
-      <button type="button" id="clear-all-present" class="danger" {% if not current_classes %}disabled{% endif %}>Clear All (All Absent)</button>
-      <button type="submit" name="action" value="save_attendance" {% if not current_classes %}disabled{% endif %}>Save Attendance</button>
-      <button type="submit" name="action" value="close_and_apply" {% if not current_classes %}disabled{% endif %}>End Class + Apply Per-Student Techniques</button>
+    <div class="section-tools">
+      <div class="row-actions">
+        <button type="button" id="mark-all-present" {% if not current_classes %}disabled{% endif %}>All Present</button>
+        <button type="button" id="clear-all-present" class="danger" {% if not current_classes %}disabled{% endif %}>Clear</button>
+        <button type="submit" name="action" value="save_attendance" {% if not current_classes %}disabled{% endif %}>Save</button>
+        <button type="submit" name="action" value="close_and_apply" {% if not current_classes %}disabled{% endif %}>End + Apply</button>
+      </div>
+      <label>Search Students
+        <input type="search" id="attendance-student-search" placeholder="Student name" />
+      </label>
+      <label>Walk-Ins (Didn't Sign Up)
+        <select id="walk-in-select" name="walk_in_child_ids" multiple size="4" {% if not current_classes %}disabled{% endif %}>
+          {% for child in walk_in_candidates %}
+            <option value="{{ child.id }}">{{ child.child_name }}</option>
+          {% else %}
+            <option value="" disabled>No walk-ins available</option>
+          {% endfor %}
+        </select>
+      </label>
     </div>
-    <label>Bulk Techniques For All Present Students (optional)
-      <select name="bulk_technique_ids" multiple size="5" {% if not current_classes %}disabled{% endif %}>
-        {% for t in active_techniques %}
-          <option value="{{ t.id }}">{{ t.technique_name }} ({{ t.program_track|track_label }} - {{ t.belt_name }})</option>
-        {% endfor %}
-      </select>
-    </label>
 
-    <table>
-      <tr>
-        <th>Present</th>
-        <th>Student</th>
-        <th>Track</th>
-        <th>Belt</th>
-        <th>Current Status</th>
-        <th>Progress</th>
-        <th>Techniques For This Student</th>
-        <th>Learned Increment</th>
-      </tr>
-      {% for child in roster_students %}
-        <tr
-          class="student-row"
-          data-child-id="{{ child.id }}"
-          data-track="{{ child.program_track }}"
-          data-belt="{{ child.current_belt }}"
-        >
-          <td>
-            <label class="checkbox">
-              <input type="checkbox" class="present-checkbox" name="present_child_ids" value="{{ child.id }}" />
-              Present
-            </label>
-          </td>
-          <td>{{ child.child_name }}</td>
-          <td>{{ child.program_track|track_label }}</td>
-          <td>{{ child.current_belt }}</td>
-          <td class="attendance-status">Absent</td>
-          <td>{{ child.belt_progress_count }} / {{ child.total_skills }}</td>
-          <td>
-            <div class="actions technique-actions">
-              <button type="button" class="secondary technique-select-all" data-child-id="{{ child.id }}">Select Suggested</button>
-              <button type="button" class="danger technique-clear-all" data-child-id="{{ child.id }}">Clear</button>
-            </div>
-            <div class="technique-checklist" data-child-id="{{ child.id }}">
-              {% for t in active_techniques %}
-                <label
-                  class="checkbox technique-item"
-                  data-track="{{ t.program_track }}"
-                  data-belt="{{ t.belt_name }}"
-                >
-                  <input
-                    type="checkbox"
-                    class="technique-checkbox"
-                    name="technique_ids_{{ child.id }}"
-                    value="{{ t.id }}"
-                    data-track="{{ t.program_track }}"
-                    data-belt="{{ t.belt_name }}"
-                    data-child-id="{{ child.id }}"
-                  />
-                  <span>{{ t.technique_name }} ({{ t.program_track|track_label }} - {{ t.belt_name }})</span>
-                </label>
-              {% endfor %}
-            </div>
-          </td>
-          <td>
-            <select name="learned_increment_{{ child.id }}" class="learned-increment" data-child-id="{{ child.id }}">
-              <option value="1">+1</option>
-              <option value="2">+2</option>
-              <option value="3">+3</option>
-            </select>
-          </td>
+    <details class="section-collapse">
+      <summary>Bulk Techniques For Present Students</summary>
+      <label style="margin-top: 0.45rem;">
+        <select name="bulk_technique_ids" multiple size="4" {% if not current_classes %}disabled{% endif %}>
+          {% for t in active_techniques %}
+            <option value="{{ t.id }}">{{ t.technique_name }} ({{ t.belt_name }})</option>
+          {% endfor %}
+        </select>
+      </label>
+    </details>
+
+    <div class="table-shell tall">
+      <table id="attendance-roster">
+        <tr>
+          <th>Present</th>
+          <th>Student</th>
+          <th>Belt</th>
+          <th>Progress</th>
+          <th>Techniques</th>
+          <th>+</th>
+          <th>Status</th>
         </tr>
-      {% else %}
-        <tr><td colspan="8">No students enrolled in this class.</td></tr>
-      {% endfor %}
-    </table>
-
-    <label style="margin-top: 1rem;">Walk-In Students (Present, Didn't Sign Up)
-      <select id="walk-in-child-ids" name="walk_in_child_ids" multiple size="6" {% if not current_classes %}disabled{% endif %}>
-        {% for child in walk_in_candidates %}
-          <option value="{{ child.id }}">{{ child.child_name }}</option>
+        <tbody>
+        {% for child in roster_students %}
+          <tr
+            class="student-row"
+            data-search="{{ (child.child_name)|lower }}"
+          >
+            <td>
+              <label class="checkbox">
+                <input type="checkbox" class="present-checkbox" name="present_child_ids" value="{{ child.id }}" />
+                Yes
+              </label>
+            </td>
+            <td>{{ child.child_name }}</td>
+            <td>{{ child.current_belt }}</td>
+            <td>{{ child.belt_progress_count }}/{{ child.total_skills }}</td>
+            <td>
+              <select name="technique_ids_{{ child.id }}" class="technique-select" multiple size="2">
+                {% for t in active_techniques %}
+                  {% if t.belt_name == child.current_belt %}
+                    <option value="{{ t.id }}">{{ t.technique_name }}</option>
+                  {% endif %}
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <select name="learned_increment_{{ child.id }}" class="learned-increment" data-child-id="{{ child.id }}">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </td>
+            <td class="attendance-status"><span class="pill warning">Absent</span></td>
+          </tr>
         {% else %}
-          <option value="" disabled>No additional students in this track</option>
+          <tr><td colspan="7">No students enrolled in this class.</td></tr>
         {% endfor %}
-      </select>
-    </label>
-    <p class="hint">Select students who attended without class signup. They will be saved as Present and marked "Didn't sign up".</p>
+        </tbody>
+      </table>
+    </div>
   </form>
 </section>
 
@@ -132,27 +119,9 @@
   const presentCheckboxes = document.querySelectorAll('.present-checkbox');
   const markAllPresentBtn = document.getElementById('mark-all-present');
   const clearAllPresentBtn = document.getElementById('clear-all-present');
-  const walkInSelect = document.getElementById('walk-in-child-ids');
+  const walkInSelect = document.getElementById('walk-in-select');
+  const studentSearch = document.getElementById('attendance-student-search');
   const studentRows = document.querySelectorAll('.student-row');
-  const techniqueCheckboxes = document.querySelectorAll('.technique-checkbox');
-  const selectAllTechniqueBtns = document.querySelectorAll('.technique-select-all');
-  const clearTechniqueBtns = document.querySelectorAll('.technique-clear-all');
-
-  const filterTechniquesByStudent = () => {
-    studentRows.forEach((row) => {
-      const studentTrack = row.dataset.track;
-      const studentBelt = row.dataset.belt;
-      const techniqueItems = row.querySelectorAll('.technique-item');
-      techniqueItems.forEach((item) => {
-        const matches = item.dataset.track === studentTrack && item.dataset.belt === studentBelt;
-        item.classList.toggle('hidden', !matches);
-        const checkbox = item.querySelector('input[type="checkbox"]');
-        if (!matches && checkbox) {
-          checkbox.checked = false;
-        }
-      });
-    });
-  };
 
   const syncInputsByAttendance = () => {
     studentRows.forEach((row) => {
@@ -160,23 +129,15 @@
       const isPresent = !!presentCheckbox?.checked;
       const statusCell = row.querySelector('.attendance-status');
       if (statusCell) {
-        statusCell.textContent = isPresent ? 'Present' : 'Absent';
+        statusCell.innerHTML = isPresent
+          ? '<span class="pill success">Present</span>'
+          : '<span class="pill warning">Absent</span>';
       }
-      row.querySelectorAll('.technique-checkbox').forEach((checkbox) => {
-        checkbox.disabled = !isPresent;
+      row.querySelectorAll('.technique-select').forEach((select) => {
+        select.disabled = !isPresent;
       });
       const incrementSelect = row.querySelector('.learned-increment');
-      if (incrementSelect) {
-        incrementSelect.disabled = !isPresent;
-      }
-      const selectBtn = row.querySelector('.technique-select-all');
-      const clearBtn = row.querySelector('.technique-clear-all');
-      if (selectBtn) {
-        selectBtn.disabled = !isPresent;
-      }
-      if (clearBtn) {
-        clearBtn.disabled = !isPresent;
-      }
+      if (incrementSelect) incrementSelect.disabled = !isPresent;
     });
   };
 
@@ -203,29 +164,14 @@
     checkbox.addEventListener('change', syncInputsByAttendance);
   });
 
-  selectAllTechniqueBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const childId = btn.dataset.childId;
-      techniqueCheckboxes.forEach((checkbox) => {
-        if (checkbox.dataset.childId === childId && !checkbox.disabled && !checkbox.closest('.hidden')) {
-          checkbox.checked = true;
-        }
-      });
+  studentSearch?.addEventListener('input', () => {
+    const query = studentSearch.value.trim().toLowerCase();
+    studentRows.forEach((row) => {
+      const haystack = row.dataset.search || '';
+      row.style.display = !query || haystack.includes(query) ? '' : 'none';
     });
   });
 
-  clearTechniqueBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const childId = btn.dataset.childId;
-      techniqueCheckboxes.forEach((checkbox) => {
-        if (checkbox.dataset.childId === childId) {
-          checkbox.checked = false;
-        }
-      });
-    });
-  });
-
-  filterTechniquesByStudent();
   syncInputsByAttendance();
 </script>
 {% endblock %}

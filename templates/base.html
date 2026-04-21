@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="scroll-smooth">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,52 +7,21 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <script>
-      tailwind = {
-        config: {
-          theme: {
-            extend: {
-              fontFamily: {
-                sans: ["Manrope", "ui-sans-serif", "system-ui", "sans-serif"],
-              },
-              colors: {
-                brand: {
-                  50: "#f1f5ff",
-                  100: "#e4ebff",
-                  500: "#365fd8",
-                  600: "#2d50b5",
-                  700: "#254293",
-                },
-                accent: {
-                  500: "#0ea5a5",
-                  600: "#0b8e8e",
-                },
-              },
-              boxShadow: {
-                soft: "0 12px 30px -18px rgba(15, 23, 42, 0.45)",
-              },
-            },
-          },
-        },
-      };
-    </script>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=20260421c" />
   </head>
-  <body class="min-h-screen bg-slate-100 text-slate-900 antialiased theme-shell">
-
+  <body class="theme-shell role-{{ session.get('role') or 'guest' }}">
     {% set logged_in = session.get('username') %}
     {% if logged_in %}
       <header id="react-shell-header"></header>
-      <div class="app-frame mx-auto flex w-full max-w-7xl gap-6 px-4 pb-10 pt-6 sm:px-6 lg:px-8">
-        <aside id="react-shell-sidebar" class="hidden lg:block lg:w-72 lg:shrink-0"></aside>
-        <main id="page-content" class="page-transition content-stage w-full" data-endpoint="{{ request.endpoint or '' }}">
+      <div class="app-shell">
+        <main id="page-content" class="page-transition" data-endpoint="{{ request.endpoint or '' }}">
     {% else %}
-      <main id="page-content" class="page-transition content-stage mx-auto w-full max-w-xl px-4 pb-12 pt-14 sm:px-6" data-endpoint="{{ request.endpoint or '' }}">
+      <div class="app-shell">
+        <main id="page-content" class="page-transition" data-endpoint="{{ request.endpoint or '' }}">
     {% endif %}
           {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-              <div class="mb-4 space-y-3">
+              <div class="stack" style="margin-bottom: 0.7rem;">
                 {% for category, message in messages %}
                   <div class="flash {{ category }}">{{ message }}</div>
                 {% endfor %}
@@ -62,9 +31,7 @@
 
           {% block content %}{% endblock %}
         </main>
-    {% if logged_in %}
       </div>
-    {% endif %}
 
     <script>
       window.__APP_CONTEXT__ = {
@@ -80,7 +47,6 @@
           { label: 'Class Signup', hint: 'Join classes as staff', href: {{ url_for('staff_class_signup')|tojson }}, endpoints: ['staff_class_signup'] },
           { label: 'Progress', hint: 'Track student growth', href: {{ url_for('employee_progress')|tojson }}, endpoints: ['employee_progress'] },
           { label: 'Weekly Connections', hint: 'Staff weekly board', href: {{ url_for('staff_connections')|tojson }}, endpoints: ['staff_connections'] },
-          { label: 'Techniques', hint: 'Manage techniques', href: {{ url_for('techniques')|tojson }}, endpoints: ['techniques'] },
           { label: 'Shift Switch', hint: 'Request schedule swap', href: {{ url_for('request_switch')|tojson }}, endpoints: ['request_switch'] },
           { label: 'Call-Out', hint: 'Submit absence', href: {{ url_for('request_callout')|tojson }}, endpoints: ['request_callout'] },
           {% elif session.get('role') == 'manager' %}
@@ -100,6 +66,34 @@
         ]
       };
     </script>
-    <script defer src="{{ url_for('static', filename='app_shell.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='app_shell.js') }}?v=20260421c"></script>
+    <script>
+      (() => {
+        const wireTableFilters = () => {
+          document.querySelectorAll('[data-table-filter]').forEach((input) => {
+            const tableId = input.getAttribute('data-table-filter');
+            const table = tableId ? document.getElementById(tableId) : null;
+            if (!table || input.dataset.wired === 'true') return;
+            input.dataset.wired = 'true';
+            const rows = () => Array.from(table.querySelectorAll('tbody tr'));
+            const applyFilter = () => {
+              const query = input.value.trim().toLowerCase();
+              rows().forEach((row) => {
+                if (row.querySelector('td[colspan]')) return;
+                const text = (row.textContent || '').toLowerCase();
+                row.style.display = !query || text.includes(query) ? '' : 'none';
+              });
+            };
+            input.addEventListener('input', applyFilter);
+            applyFilter();
+          });
+        };
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', wireTableFilters);
+        } else {
+          wireTableFilters();
+        }
+      })();
+    </script>
   </body>
 </html>
