@@ -28,18 +28,17 @@ BELT_SEQUENCE = [
 TRACK_LABELS = {
     "little_dragons": "Little Dragons (Age 4)",
     "kids_martial_arts": "Kids Martial Arts (Ages 5-12)",
-    "teen_martial_arts": "Teen Martial Arts (Ages 13+)",
-    "adult_martial_arts": "Adult Martial Arts",
+    "adult_martial_arts": "Teen & Adult Martial Arts (Ages 13+)",
 }
 TRACK_NORMALIZATION = {
     "kid": "kids_martial_arts",
     "adult": "adult_martial_arts",
     "kids": "kids_martial_arts",
-    "teens": "teen_martial_arts",
-    "teen": "teen_martial_arts",
+    "teens": "adult_martial_arts",
+    "teen": "adult_martial_arts",
     "little dragons": "little_dragons",
     "kids martial arts": "kids_martial_arts",
-    "teen martial arts": "teen_martial_arts",
+    "teen martial arts": "adult_martial_arts",
     "adult martial arts": "adult_martial_arts",
 }
 PROGRAM_TRACKS = tuple(TRACK_LABELS.keys())
@@ -129,8 +128,11 @@ def _ensure_feature_schema(cur):
     track_migration_sql = [
         "UPDATE children SET program_track = 'kids_martial_arts' WHERE program_track = 'kid'",
         "UPDATE children SET program_track = 'adult_martial_arts' WHERE program_track = 'adult'",
+        "UPDATE children SET program_track = 'adult_martial_arts' WHERE program_track = 'teen_martial_arts'",
         "UPDATE techniques SET program_track = 'kids_martial_arts' WHERE program_track = 'kid'",
         "UPDATE techniques SET program_track = 'adult_martial_arts' WHERE program_track = 'adult'",
+        "UPDATE techniques SET program_track = 'adult_martial_arts' WHERE program_track = 'teen_martial_arts'",
+        "UPDATE class_offerings SET program_track = 'adult_martial_arts' WHERE program_track = 'teen_martial_arts'",
         "ALTER TABLE children MODIFY COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
         "ALTER TABLE techniques MODIFY COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
     ]
@@ -194,7 +196,7 @@ def _ensure_feature_schema(cur):
         CREATE OR REPLACE VIEW kid_belt_students AS
         SELECT id, child_name, child_name AS student_name, belt_index
         FROM children
-        WHERE program_track IN ('little_dragons', 'kids_martial_arts', 'teen_martial_arts')
+        WHERE program_track IN ('little_dragons', 'kids_martial_arts')
         """
     )
     cur.execute(
@@ -2323,7 +2325,6 @@ def manager_classes():
         class_date = request.form.get("class_date", "").strip()
         start_time = request.form.get("start_time", "").strip()
         end_time = request.form.get("end_time", "").strip()
-        instructor_user_id = request.form.get("instructor_user_id", type=int)
         is_recurring_weekly = request.form.get("is_recurring_weekly") == "on"
         recurrence_end_date = request.form.get("recurrence_end_date", "").strip()
 
@@ -2379,36 +2380,14 @@ def manager_classes():
                   AND class_date = %s
                   AND start_time = %s
                   AND end_time = %s
-                  AND (instructor_user_id <=> %s)
                 LIMIT 1
                 """,
-                (class_name, program_track, day_cursor, start_time, end_time, instructor_user_id),
+                (class_name, program_track, day_cursor, start_time, end_time),
             )
             exists = cur.fetchone()
             if exists:
                 skipped_count += 1
             else:
-                if instructor_user_id:
-                    cur.execute(
-                        """
-                        SELECT id
-                        FROM class_offerings
-                        WHERE instructor_user_id = %s
-                          AND class_date = %s
-                          AND NOT (end_time <= %s OR start_time >= %s)
-                        LIMIT 1
-                        """,
-                        (instructor_user_id, day_cursor, start_time, end_time),
-                    )
-                    overlapping = cur.fetchone()
-                    if overlapping:
-                        skipped_count += 1
-                        if is_recurring_weekly:
-                            day_cursor += timedelta(days=7)
-                            continue
-                        flash("Instructor already has an overlapping class at that time.", "error")
-                        cur.close()
-                        return redirect(url_for("manager_classes"))
                 cur.execute(
                     """
                     INSERT INTO class_offerings
@@ -2421,7 +2400,7 @@ def manager_classes():
                         day_cursor,
                         start_time,
                         end_time,
-                        instructor_user_id,
+                        None,
                         session["user_id"],
                     ),
                 )
@@ -2443,10 +2422,6 @@ def manager_classes():
         return redirect(url_for("manager_classes"))
 
     cur.execute(
-        "SELECT id, username FROM users WHERE role = 'employee' ORDER BY username"
-    )
-    employees = cur.fetchall()
-    cur.execute(
         """
         SELECT
             co.id,
@@ -2454,10 +2429,8 @@ def manager_classes():
             co.class_name,
             co.class_date,
             TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
-            u.username AS instructor_name
+            TIME_FORMAT(co.end_time, '%H:%i') AS end_label
         FROM class_offerings co
-        LEFT JOIN users u ON u.id = co.instructor_user_id
         ORDER BY co.class_date, co.start_time
         """
     )
@@ -2465,7 +2438,6 @@ def manager_classes():
     cur.close()
     return render_template(
         "manager_classes.html",
-        employees=employees,
         offerings=offerings,
         selected_track=current_track,
     )
@@ -2473,7 +2445,7 @@ def manager_classes():
 
 @app.route("/techniques", methods=["GET", "POST"])
 @login_required
-@role_required("employee", "manager")
+@role_required("manager")
 def techniques():
     # Manage techniques list by kid/adult + belt.
     db = get_db()
@@ -2552,7 +2524,7 @@ def techniques():
 
 @app.route("/techniques/<int:technique_id>/edit", methods=["POST"])
 @login_required
-@role_required("employee", "manager")
+@role_required("manager")
 def edit_technique(technique_id):
     # Update technique metadata and active/inactive state.
     db = get_db()
@@ -2624,7 +2596,7 @@ def edit_technique(technique_id):
 
 @app.route("/techniques/<int:technique_id>/delete", methods=["POST"])
 @login_required
-@role_required("employee", "manager")
+@role_required("manager")
 def delete_technique(technique_id):
     # Delete a technique if it is not currently referenced by child progress records.
     db = get_db()
