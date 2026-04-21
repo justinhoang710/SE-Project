@@ -2,7 +2,7 @@
 {% block content %}
 <section class="card">
   <h2>Create Student Profile</h2>
-  <form method="post" style="margin-top: 0.7rem;">
+  <form method="post">
     <input type="hidden" name="action" value="create_student" />
     <label>Student Name
       <input type="text" name="child_name" required />
@@ -15,33 +15,36 @@
         {% endfor %}
       </select>
     </label>
-    <label>Track
-      <select name="program_track" required>
-        {% for track in program_tracks %}
-          <option value="{{ track }}">{{ track_labels[track] }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Belt Rank
-      <select name="belt_index" required>
-        {% for belt_name in belt_sequence %}
-          <option value="{{ loop.index0 }}">{{ loop.index }} - {{ belt_name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Guardian Name (optional)
-      <input type="text" name="guardian_name" />
-    </label>
-    <label>Contact Phone
-      <input type="text" name="contact_phone" required />
-    </label>
+    <div class="section-tools">
+      <label>Track
+        <select name="program_track" required>
+          {% for track in program_tracks %}
+            <option value="{{ track }}">{{ track_labels[track] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Belt Rank
+        <select name="belt_index" required>
+          {% for belt_name in belt_sequence %}
+            <option value="{{ loop.index0 }}">{{ loop.index }} - {{ belt_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <div class="section-tools">
+      <label>Guardian Name (optional)
+        <input type="text" name="guardian_name" />
+      </label>
+      <label>Contact Phone
+        <input type="text" name="contact_phone" required />
+      </label>
+    </div>
     <button type="submit">Create Student</button>
   </form>
 </section>
 
 <section class="card">
   <h2>Enroll Students Into Class</h2>
-
   <form method="get">
     <label>Class
       <select name="offering_id" onchange="this.form.submit()" required>
@@ -57,40 +60,39 @@
   <form method="post">
     <input type="hidden" name="action" value="enroll_students" />
     <input type="hidden" name="offering_id" value="{{ selected_offering_id or '' }}" />
-    <label>Students</label>
-    <label>Search Students
-      <input type="search" id="student-search" placeholder="Type student or parent name" />
-    </label>
-    {% for track in program_tracks %}
-      <div class="enroll-divider">
-        <h4>{{ track_labels[track] }}</h4>
-      </div>
-      <div class="student-tile-grid enroll-student-grid">
-        {% for child in all_students if child.program_track == track %}
-          <button
-            type="button"
-            class="student-tile enroll-student-tile {% if child.id in enrolled_ids %}disabled{% endif %}"
-            data-target-id="child-{{ child.id }}"
-            data-search="{{ (child.child_name ~ ' ' ~ child.parent_username ~ ' ' ~ (track_labels[track]) ~ ' ' ~ child.current_belt)|lower }}"
-            {% if child.id in enrolled_ids %}disabled{% endif %}
-          >
-            <strong>{{ child.child_name }}</strong>
-            <span class="hint">Belt: {{ child.current_belt }}</span>
-            <span class="hint">Parent: {{ child.parent_username }}</span>
-            {% if child.id in enrolled_ids %}
-              <span class="attendance-state">Already enrolled</span>
-            {% else %}
-              <span class="attendance-state">Click to select</span>
-            {% endif %}
-          </button>
-          {% if child.id not in enrolled_ids %}
-            <input id="child-{{ child.id }}" class="enroll-checkbox hidden" type="checkbox" name="child_ids" value="{{ child.id }}" />
-          {% endif %}
+
+    <div class="section-tools">
+      <label>Search Students
+        <input type="search" id="student-search" placeholder="Student, parent, track, belt" />
+      </label>
+    </div>
+
+    <div class="table-shell tall">
+      <table id="enroll-student-table">
+        <tr><th>Select</th><th>Student</th><th>Parent</th><th>Track</th><th>Belt</th><th>Status</th></tr>
+        <tbody>
+        {% for child in all_students %}
+          <tr class="enroll-row" data-search="{{ (child.child_name ~ ' ' ~ child.parent_username ~ ' ' ~ (track_labels[child.program_track]) ~ ' ' ~ child.current_belt)|lower }}">
+            <td>
+              {% if child.id in enrolled_ids %}
+                -
+              {% else %}
+                <input class="enroll-checkbox" type="checkbox" name="child_ids" value="{{ child.id }}" />
+              {% endif %}
+            </td>
+            <td>{{ child.child_name }}</td>
+            <td>{{ child.parent_username }}</td>
+            <td>{{ child.program_track|track_label }}</td>
+            <td>{{ child.current_belt }}</td>
+            <td>{% if child.id in enrolled_ids %}Already enrolled{% else %}Available{% endif %}</td>
+          </tr>
         {% else %}
-          <p class="hint">No students currently in this track.</p>
+          <tr><td colspan="6">No students found.</td></tr>
         {% endfor %}
-      </div>
-    {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
     <p id="enroll-selection-count" class="hint">Selected: 0 student(s)</p>
     <button type="submit">Add Selected Students To Class</button>
   </form>
@@ -98,72 +100,66 @@
 
 <section class="card">
   <h3>Selected Class Roster</h3>
-  <table>
-    <tr><th>Student</th><th>Track</th><th>Belt</th><th>Status</th></tr>
-    {% for child in selected_roster %}
-      <tr>
-        <td>{{ child.child_name }}</td>
-        <td>{{ child.program_track|track_label }}</td>
-        <td>{{ child.current_belt }}</td>
-        <td>Enrolled</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="4">No students enrolled in this class yet.</td></tr>
-    {% endfor %}
-  </table>
+  <div class="table-shell">
+    <table>
+      <tr><th>Student</th><th>Track</th><th>Belt</th><th>Status</th></tr>
+      <tbody>
+      {% for child in selected_roster %}
+        <tr>
+          <td>{{ child.child_name }}</td>
+          <td>{{ child.program_track|track_label }}</td>
+          <td>{{ child.current_belt }}</td>
+          <td>Enrolled</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No students enrolled in this class yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section class="card">
   <h3>Class Roster Counts</h3>
-  <table>
-    <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Enrolled Students</th></tr>
-    {% for cls in class_roster_counts %}
-      <tr>
-        <td>{{ cls.program_track|track_label }}</td>
-        <td>{{ cls.class_date }}</td>
-        <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
-        <td>{{ cls.class_name }}</td>
-        <td>{{ cls.enrolled_count }}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="5">No classes available.</td></tr>
-    {% endfor %}
-  </table>
+  <div class="table-shell">
+    <table>
+      <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Enrolled Students</th></tr>
+      <tbody>
+      {% for cls in class_roster_counts %}
+        <tr>
+          <td>{{ cls.program_track|track_label }}</td>
+          <td>{{ cls.class_date }}</td>
+          <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
+          <td>{{ cls.class_name }}</td>
+          <td>{{ cls.enrolled_count }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No classes available.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <script>
-  const enrollTiles = document.querySelectorAll('.enroll-student-tile');
-  const enrollCount = document.getElementById('enroll-selection-count');
   const studentSearch = document.getElementById('student-search');
+  const enrollRows = document.querySelectorAll('.enroll-row');
+  const enrollCount = document.getElementById('enroll-selection-count');
 
   const updateEnrollCount = () => {
     const selected = document.querySelectorAll('.enroll-checkbox:checked').length;
-    if (enrollCount) {
-      enrollCount.textContent = `Selected: ${selected} student(s)`;
-    }
+    if (enrollCount) enrollCount.textContent = `Selected: ${selected} student(s)`;
   };
 
-  enrollTiles.forEach((tile) => {
-    tile.addEventListener('click', () => {
-      if (tile.disabled) {
-        return;
-      }
-      const targetId = tile.dataset.targetId;
-      const checkbox = targetId ? document.getElementById(targetId) : null;
-      if (!checkbox) {
-        return;
-      }
-      checkbox.checked = !checkbox.checked;
-      tile.classList.toggle('selected', checkbox.checked);
-      updateEnrollCount();
-    });
+  document.querySelectorAll('.enroll-checkbox').forEach((checkbox) => {
+    checkbox.addEventListener('change', updateEnrollCount);
   });
 
   studentSearch?.addEventListener('input', () => {
     const query = studentSearch.value.trim().toLowerCase();
-    enrollTiles.forEach((tile) => {
-      const haystack = tile.dataset.search || '';
-      tile.style.display = !query || haystack.includes(query) ? '' : 'none';
+    enrollRows.forEach((row) => {
+      const haystack = row.dataset.search || '';
+      row.style.display = !query || haystack.includes(query) ? '' : 'none';
     });
   });
 

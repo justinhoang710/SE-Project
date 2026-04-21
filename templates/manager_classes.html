@@ -1,62 +1,70 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card">
-  <h2>Class Signup Schedule</h2>
+  <h2>Class Offerings</h2>
   <form method="post">
-    <label>Track Level
-      <select name="program_track" required>
-        {% for track in program_tracks %}
-          <option value="{{ track }}" {% if track == selected_track %}selected{% endif %}>{{ track_labels[track] }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Class Name
-      <input type="text" name="class_name" required />
-    </label>
-    <label>Date
-      <input type="date" name="class_date" required />
-    </label>
-    <label>Start Time
-      <input type="time" name="start_time" required />
-    </label>
-    <label>End Time
-      <input type="time" name="end_time" required />
-    </label>
-    <label>Instructor (optional)
-      <select name="instructor_user_id">
-        <option value="">None</option>
-        {% for employee in employees %}
-          <option value="{{ employee.id }}">{{ employee.username }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label class="checkbox">
-      <input type="checkbox" id="is-recurring-weekly" name="is_recurring_weekly" />
-      Repeat weekly (same weekday/time)
-    </label>
-    <label id="recurrence-end-wrap" class="hidden">Repeat Until
-      <input type="date" id="recurrence-end-date" name="recurrence_end_date" />
-    </label>
-    <button type="submit">Add Class Offering</button>
+    <div class="section-tools">
+      <label>Track
+        <select name="program_track" required>
+          {% for track in program_tracks %}
+            <option value="{{ track }}" {% if track == selected_track %}selected{% endif %}>{{ track_labels[track] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Class Name
+        <input type="text" name="class_name" required />
+      </label>
+    </div>
+    <div class="section-tools">
+      <label>Date
+        <input type="date" name="class_date" required />
+      </label>
+      <label>Start
+        <input type="time" name="start_time" required />
+      </label>
+      <label>End
+        <input type="time" name="end_time" required />
+      </label>
+      <div class="actions" style="align-self: end;">
+        <button type="submit">Add</button>
+      </div>
+    </div>
+    <div class="section-tools">
+      <label class="checkbox">
+        <input type="checkbox" id="is-recurring-weekly" name="is_recurring_weekly" />
+        Repeat weekly
+      </label>
+      <label id="recurrence-end-wrap" class="hidden">Repeat Until
+        <input type="date" id="recurrence-end-date" name="recurrence_end_date" />
+      </label>
+    </div>
   </form>
 </section>
 
 <section class="card">
   <h3>Loaded Class Offerings</h3>
-  <table>
-    <tr><th>Track</th><th>Date</th><th>Time</th><th>Class Name</th><th>Instructor</th></tr>
-    {% for cls in offerings %}
-      <tr>
-        <td>{{ cls.program_track|track_label }}</td>
-        <td>{{ cls.class_date }}</td>
-        <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
-        <td>{{ cls.class_name }}</td>
-        <td>{{ cls.instructor_name or '-' }}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="5">No class offerings yet.</td></tr>
-    {% endfor %}
-  </table>
+  <div class="section-tools">
+    <label>Search
+      <input type="search" placeholder="Track, date, class" data-table-filter="loaded-offerings-table" />
+    </label>
+  </div>
+  <div class="table-shell tall">
+    <table id="loaded-offerings-table">
+      <tr><th>Track</th><th>Date</th><th>Time</th><th>Class Name</th></tr>
+      <tbody>
+      {% for cls in offerings %}
+        <tr>
+          <td>{{ cls.program_track|track_label }}</td>
+          <td>{{ cls.class_date }}</td>
+          <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
+          <td>{{ cls.class_name }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No class offerings yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <script>

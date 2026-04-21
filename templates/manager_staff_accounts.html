@@ -8,38 +8,51 @@
 <section class="card">
   <h3>Create Staff Account</h3>
   <form method="post">
-    <label>Account Type
-      <select name="role" required>
-        <option value="">Select role</option>
-        <option value="employee">Employee</option>
-        <option value="manager">Manager</option>
-      </select>
-    </label>
-    <label>Username
-      <input type="text" name="username" minlength="3" required />
-    </label>
-    <label>Password
-      <input type="password" name="password" minlength="6" required />
-    </label>
-    <label>Confirm Password
-      <input type="password" name="confirm_password" minlength="6" required />
-    </label>
+    <div class="section-tools">
+      <label>Account Type
+        <select name="role" required>
+          <option value="">Select role</option>
+          <option value="employee">Employee</option>
+          <option value="manager">Manager</option>
+        </select>
+      </label>
+      <label>Username
+        <input type="text" name="username" minlength="3" required />
+      </label>
+    </div>
+    <div class="section-tools">
+      <label>Password
+        <input type="password" name="password" minlength="6" required />
+      </label>
+      <label>Confirm Password
+        <input type="password" name="confirm_password" minlength="6" required />
+      </label>
+    </div>
     <button type="submit">Create Staff Account</button>
   </form>
 </section>
 
 <section class="card">
   <h3>Current Staff Accounts</h3>
-  <table>
-    <tr><th>Username</th><th>Role</th></tr>
-    {% for row in staff_accounts %}
-      <tr>
-        <td>{{ row.username }}</td>
-        <td>{{ row.role }}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="2">No staff accounts found.</td></tr>
-    {% endfor %}
-  </table>
+  <div class="section-tools">
+    <label>Search
+      <input type="search" placeholder="Username or role" data-table-filter="staff-accounts-table" />
+    </label>
+  </div>
+  <div class="table-shell">
+    <table id="staff-accounts-table">
+      <tr><th>Username</th><th>Role</th></tr>
+      <tbody>
+      {% for row in staff_accounts %}
+        <tr>
+          <td>{{ row.username }}</td>
+          <td>{{ row.role }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="2">No staff accounts found.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endblock %}

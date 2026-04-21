@@ -1,134 +1,118 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card">
-  <h2>Manager Home</h2>
-  <div class="student-tile-grid" style="margin-top: 0.85rem;">
-    <a class="student-tile" href="{{ url_for('manager_schedule') }}">
-      <strong>Plan Staff Schedule</strong>
-      <span class="hint">Create and edit shifts for each day.</span>
-    </a>
-    <a class="student-tile" href="{{ url_for('manager_classes') }}">
-      <strong>Publish Class Offerings</strong>
-      <span class="hint">Open class slots for parent signups.</span>
-    </a>
-    <a class="student-tile" href="{{ url_for('manager_enroll') }}">
-      <strong>Enroll Students</strong>
-      <span class="hint">Add students to class rosters.</span>
-    </a>
-    <a class="student-tile" href="{{ url_for('manager_attendance') }}">
-      <strong>Run Attendance</strong>
-      <span class="hint">Record present students and techniques.</span>
-    </a>
-    <a class="student-tile" href="{{ url_for('manager_progress') }}">
-      <strong>Review Student Progress</strong>
-      <span class="hint">Manage promotions, progress, and notes.</span>
-    </a>
-    <a class="student-tile" href="{{ url_for('staff_class_signup') }}">
-      <strong>Sign Up For Class</strong>
-      <span class="hint">Register as a participant in upcoming classes.</span>
-    </a>
-    <a class="student-tile" href="{{ url_for('techniques') }}">
-      <strong>Edit Techniques</strong>
-      <span class="hint">Maintain the active technique catalog.</span>
-    </a>
-    <a class="student-tile" href="{{ url_for('staff_connections') }}">
-      <strong>Weekly Connections</strong>
-      <span class="hint">View all staff weekly personal connection entries.</span>
-    </a>
-    <a class="student-tile" href="{{ url_for('manager_staff_accounts') }}">
-      <strong>Manage Staff Accounts</strong>
-      <span class="hint">Create new employee and manager accounts.</span>
-    </a>
+  <h2>Manager Dashboard</h2>
+  <div class="section-tools">
+    <a class="button secondary" href="{{ url_for('manager_schedule') }}">Edit Schedule</a>
+    <a class="button secondary" href="{{ url_for('manager_classes') }}">Class Offerings</a>
+    <a class="button secondary" href="{{ url_for('manager_enroll') }}">Enroll Students</a>
+    <a class="button secondary" href="{{ url_for('manager_attendance') }}">Attendance</a>
+    <a class="button secondary" href="{{ url_for('manager_progress') }}">Student Progress</a>
+    <a class="button secondary" href="{{ url_for('manager_staff_accounts') }}">Staff Accounts</a>
+    <a class="button secondary" href="{{ url_for('staff_connections') }}">Weekly Connections</a>
+    <a class="button secondary" href="{{ url_for('techniques') }}">Techniques</a>
   </div>
 </section>
 
 <section class="card">
-  <h3>Upcoming 2-Week Calendar</h3>
-  <div class="calendar-grid compact-calendar" style="margin-top: 0.75rem;">
+  <h3>Schedule Calendar (2 Weeks)</h3>
+  <div class="metric-strip">
+    <div class="metric"><span class="label">Pending Switch Requests</span><span class="value">{{ pending_switch_requests|length }}</span></div>
+    <div class="metric"><span class="label">Pending Call-Out Requests</span><span class="value">{{ pending_callout_requests|length }}</span></div>
+    <div class="metric"><span class="label">Recent Call-Out Activity</span><span class="value">{{ recent_callouts|length }}</span></div>
+  </div>
+
+  <div class="manager-calendar" style="margin-top: 0.65rem;">
     {% for week in calendar_weeks %}
-      {% for day in week %}
-        <article class="calendar-day">
-          <header class="calendar-day-header">
-            <h3>{{ day.weekday_short }}</h3>
-            <p>{{ day.display_date }}</p>
-          </header>
-          <div class="calendar-shift-list">
-            {% for shift in day.shifts %}
-              <p class="calendar-shift-item">{{ shift.start_label }}-{{ shift.end_label }} {{ shift.class_name }} ({{ shift.employee }})</p>
-            {% else %}
-              <p class="hint">No shifts</p>
-            {% endfor %}
-          </div>
-        </article>
-      {% endfor %}
+      <div class="manager-calendar-week">
+        {% for day in week %}
+          <article class="manager-calendar-day">
+            <header class="manager-calendar-day-header">
+              <div class="manager-calendar-weekday">{{ day.weekday_short }}</div>
+              <div class="manager-calendar-date">{{ day.display_date }}</div>
+            </header>
+            <div class="manager-calendar-events">
+              {% for shift in day.shifts %}
+                <div class="manager-calendar-event">
+                  <div class="manager-calendar-time mono">{{ shift.start_label }}-{{ shift.end_label }}</div>
+                  <div class="manager-calendar-class">{{ shift.class_name }}</div>
+                  <div class="manager-calendar-employee hint">{{ shift.employee }}</div>
+                </div>
+              {% else %}
+                <div class="hint">No shifts</div>
+              {% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
     {% endfor %}
   </div>
 </section>
 
 <section class="card">
   <h3>Pending Shift Change Requests</h3>
-  <table style="margin-top: 0.65rem;">
-    <tr><th>Requester</th><th>Target Employee</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
-    {% for r in pending_switch_requests %}
-      <tr>
-        <td>{{ r.requester }}</td>
-        <td>{{ r.requested_employee or '-' }}</td>
-        <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
-        <td>{{ r.reason }}</td>
-        <td>
-          <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='approve') }}">
-            <button type="submit">Approve</button>
-          </form>
-          <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='reject') }}">
-            <button type="submit" class="danger">Reject</button>
-          </form>
-        </td>
-      </tr>
-    {% else %}
-      <tr><td colspan="5">No pending shift change requests.</td></tr>
-    {% endfor %}
-  </table>
+  <div class="section-tools">
+    <label>Search
+      <input type="search" placeholder="Requester, target, class" data-table-filter="pending-switch-table" />
+    </label>
+  </div>
+  <div class="table-shell">
+    <table id="pending-switch-table">
+      <tr><th>Requester</th><th>Target</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
+      <tbody>
+      {% for r in pending_switch_requests %}
+        <tr>
+          <td>{{ r.requester }}</td>
+          <td>{{ r.requested_employee or '-' }}</td>
+          <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
+          <td>{{ r.reason }}</td>
+          <td>
+            <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='approve') }}">
+              <button type="submit">Approve</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='reject') }}">
+              <button type="submit" class="danger">Reject</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No pending shift change requests.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section class="card">
   <h3>Pending Call-Out Requests</h3>
-  <table style="margin-top: 0.65rem;">
-    <tr><th>Requester</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
-    {% for r in pending_callout_requests %}
-      <tr>
-        <td>{{ r.requester }}</td>
-        <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
-        <td>{{ r.reason }}</td>
-        <td>
-          <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='approve') }}">
-            <button type="submit">Approve</button>
-          </form>
-          <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='reject') }}">
-            <button type="submit" class="danger">Reject</button>
-          </form>
-        </td>
-      </tr>
-    {% else %}
-      <tr><td colspan="4">No pending call-out requests.</td></tr>
-    {% endfor %}
-  </table>
-</section>
-
-<section class="card">
-  <h3>Recent Call-Out Activity</h3>
-  <table style="margin-top: 0.65rem;">
-    <tr><th>Submitted</th><th>Requester</th><th>Shift</th><th>Status</th><th>Reason</th></tr>
-    {% for r in recent_callouts %}
-      <tr>
-        <td>{{ r.created_at }}</td>
-        <td>{{ r.requester }}</td>
-        <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
-        <td>{{ r.status }}</td>
-        <td>{{ r.reason }}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="5">No call-out requests found.</td></tr>
-    {% endfor %}
-  </table>
+  <div class="section-tools">
+    <label>Search
+      <input type="search" placeholder="Requester, class" data-table-filter="pending-callout-table" />
+    </label>
+  </div>
+  <div class="table-shell">
+    <table id="pending-callout-table">
+      <tr><th>Requester</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
+      <tbody>
+      {% for r in pending_callout_requests %}
+        <tr>
+          <td>{{ r.requester }}</td>
+          <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
+          <td>{{ r.reason }}</td>
+          <td>
+            <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='approve') }}">
+              <button type="submit">Approve</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='reject') }}">
+              <button type="submit" class="danger">Reject</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No pending call-out requests.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endblock %}
