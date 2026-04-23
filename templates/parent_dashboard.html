@@ -46,7 +46,7 @@
           <td>{{ cls.class_date }}</td>
           <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
           <td>{{ cls.class_name }}</td>
-          <td>Age {{ cls.min_age }}-{{ cls.max_age }} | {{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>
+          <td>Track must match | {{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>
           <td>
             {% for child in children %}
               {% set signup_key = child.id|string ~ ':' ~ cls.id|string %}

@@ -5,7 +5,7 @@
   <form method="post">
     <div class="section-tools">
       <label>Track
-        <select name="program_track" required>
+        <select id="program-track" name="program_track" required>
           {% for track in program_tracks %}
             <option value="{{ track }}" {% if track == selected_track %}selected{% endif %}>{{ track_labels[track] }}</option>
           {% endfor %}
@@ -30,12 +30,6 @@
       </div>
     </div>
     <div class="section-tools">
-      <label>Min Age
-        <input type="number" name="min_age" min="4" max="99" />
-      </label>
-      <label>Max Age
-        <input type="number" name="max_age" min="4" max="99" />
-      </label>
       <label>Min Belt
         <select name="min_belt_index">
           {% for belt_name in belt_sequence %}
@@ -72,19 +66,18 @@
   </div>
   <div class="table-shell tall">
     <table id="loaded-offerings-table">
-      <tr><th>Track</th><th>Date</th><th>Time</th><th>Age Range</th><th>Belt Range</th><th>Class Name</th></tr>
+      <tr><th>Track</th><th>Date</th><th>Time</th><th>Belt Range</th><th>Class Name</th></tr>
       <tbody>
       {% for cls in offerings %}
         <tr>
           <td>{{ cls.program_track|track_label }}</td>
           <td>{{ cls.class_date }}</td>
           <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
-          <td>{{ cls.min_age }}-{{ cls.max_age }}</td>
           <td>{{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>
           <td>{{ cls.class_name }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="6">No class offerings yet.</td></tr>
+        <tr><td colspan="5">No class offerings yet.</td></tr>
       {% endfor %}
       </tbody>
     </table>

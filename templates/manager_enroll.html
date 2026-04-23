@@ -61,7 +61,7 @@
   </form>
   {% set selected_class = offerings|selectattr('id', 'equalto', selected_offering_id)|list|first %}
   {% if selected_class %}
-    <p class="hint">Eligibility: Ages {{ selected_class.min_age }}-{{ selected_class.max_age }} | Belts {{ belt_sequence[selected_class.min_belt_index] }}-{{ belt_sequence[selected_class.max_belt_index] }}</p>
+    <p class="hint">Eligibility: Track must match class track | Belts {{ belt_sequence[selected_class.min_belt_index] }}-{{ belt_sequence[selected_class.max_belt_index] }}</p>
   {% endif %}
 
   <form method="post">

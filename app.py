@@ -567,6 +567,25 @@ def _format_time_12h(value):
         return str(value)
 
 
+def _format_time_hhmm(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        parsed = _parse_time_value(value)
+        if parsed:
+            return parsed.strftime("%H:%M")
+        return value
+    if isinstance(value, timedelta):
+        total_minutes = int(value.total_seconds() // 60)
+        hours = (total_minutes // 60) % 24
+        minutes = total_minutes % 60
+        return f"{hours:02d}:{minutes:02d}"
+    try:
+        return value.strftime("%H:%M")
+    except Exception:
+        return str(value)
+
+
 def _format_date_label(value):
     if isinstance(value, date):
         return value.strftime("%Y-%m-%d")
@@ -576,11 +595,29 @@ def _format_date_label(value):
 def _shift_hours(start_time, end_time):
     if not start_time or not end_time:
         return 0.0
-    start_dt = datetime.combine(date.today(), start_time)
-    end_dt = datetime.combine(date.today(), end_time)
-    if end_dt <= start_dt:
+    if isinstance(start_time, timedelta):
+        start_seconds = int(start_time.total_seconds())
+    elif isinstance(start_time, str):
+        parsed_start = _parse_time_value(start_time)
+        if not parsed_start:
+            return 0.0
+        start_seconds = (parsed_start.hour * 3600) + (parsed_start.minute * 60) + parsed_start.second
+    else:
+        start_seconds = (start_time.hour * 3600) + (start_time.minute * 60) + start_time.second
+
+    if isinstance(end_time, timedelta):
+        end_seconds = int(end_time.total_seconds())
+    elif isinstance(end_time, str):
+        parsed_end = _parse_time_value(end_time)
+        if not parsed_end:
+            return 0.0
+        end_seconds = (parsed_end.hour * 3600) + (parsed_end.minute * 60) + parsed_end.second
+    else:
+        end_seconds = (end_time.hour * 3600) + (end_time.minute * 60) + end_time.second
+
+    if end_seconds <= start_seconds:
         return 0.0
-    return round((end_dt - start_dt).total_seconds() / 3600.0, 2)
+    return round((end_seconds - start_seconds) / 3600.0, 2)
 
 
 def _default_age_range_for_track(track):
@@ -619,13 +656,7 @@ def _is_child_eligible_for_offering(child_row, offering_row):
     child_track = _normalize_track(child_row.get("program_track"))
     class_track = _normalize_track(offering_row.get("program_track"))
     if child_track != class_track:
-        return False, "Track mismatch"
-
-    child_age = int(child_row.get("child_age") or 0)
-    min_age = int(offering_row.get("min_age") or 0)
-    max_age = int(offering_row.get("max_age") or MAX_CHILD_AGE)
-    if child_age and (child_age < min_age or child_age > max_age):
-        return False, f"Age must be {min_age}-{max_age}"
+        return False, "Track must match class track"
 
     child_belt = int(child_row.get("belt_index") or 0)
     min_belt = int(offering_row.get("min_belt_index") or 0)
@@ -1250,6 +1281,8 @@ def employee_dashboard():
         SELECT
             s.id,
             s.shift_date,
+            s.start_time,
+            s.end_time,
             s.class_name,
             TIME_FORMAT(s.start_time, '%h:%i %p') AS start_label,
             TIME_FORMAT(s.end_time, '%h:%i %p') AS end_label,
@@ -1262,30 +1295,9 @@ def employee_dashboard():
         (session["user_id"], calendar_start, calendar_end),
     )
     upcoming_shifts = cur.fetchall()
-    block_map = {}
-    for row in upcoming_shifts:
-        key = (row["shift_date"].isoformat(), row["start_label"], row["end_label"])
-        block = block_map.get(key)
-        if not block:
-            block = {
-                "id": row["id"],
-                "shift_date": row["shift_date"],
-                "start_label": row["start_label"],
-                "end_label": row["end_label"],
-                "employees": [],
-            }
-            block_map[key] = block
-        label = row["employee"]
-        if row.get("employee_title"):
-            label = f"{label} ({row['employee_title']})"
-        block["employees"].append(label)
-    grouped_upcoming_blocks = sorted(
-        block_map.values(),
-        key=lambda b: (b["shift_date"], b["start_label"], b["end_label"]),
-    )
     for row in upcoming_shifts:
         row["hours"] = _shift_hours(row.get("start_time"), row.get("end_time"))
-    calendar_weeks = _build_two_week_calendar(calendar_start, grouped_upcoming_blocks)
+    calendar_weeks = _build_two_week_calendar(calendar_start, upcoming_shifts)
     weekly_hours = 0.0
     if upcoming_shifts:
         weekly_hours = round(sum(float(row.get("hours") or 0) for row in upcoming_shifts[:7]), 2)
@@ -1947,7 +1959,15 @@ def _staff_attendance_screen(page_title):
 
         cur.execute(
             """
-            SELECT id, class_name, class_date, start_time, end_time, program_track
+            SELECT
+                id,
+                class_name,
+                class_date,
+                start_time,
+                end_time,
+                program_track,
+                min_belt_index,
+                max_belt_index
             FROM class_offerings
             WHERE id = %s
             """,
@@ -1982,14 +2002,16 @@ def _staff_attendance_screen(page_title):
             walk_in_placeholders = ", ".join(["%s"] * len(walk_in_child_ids))
             cur.execute(
                 f"""
-                SELECT id
+                SELECT id, program_track, belt_index
                 FROM children
                 WHERE id IN ({walk_in_placeholders})
-                  AND program_track = %s
                 """,
-                tuple(walk_in_child_ids) + (class_row["program_track"],),
+                tuple(walk_in_child_ids),
             )
-            valid_walk_in_ids = {int(row["id"]) for row in cur.fetchall()}
+            for child_row in cur.fetchall():
+                eligible, _ = _is_child_eligible_for_offering(child_row, class_row)
+                if eligible:
+                    valid_walk_in_ids.add(int(child_row["id"]))
         present_child_ids = present_child_ids.union(valid_walk_in_ids)
 
         cur.execute(
@@ -2373,11 +2395,31 @@ def manager_dashboard():
         FROM shifts s
         JOIN users u ON u.id = s.employee_user_id
         WHERE s.shift_date BETWEEN %s AND %s
-        ORDER BY s.shift_date, s.start_time
+        ORDER BY s.shift_date, s.start_time, u.username
         """,
         (calendar_start, calendar_end),
     )
     upcoming_shifts = cur.fetchall()
+    block_map = {}
+    for row in upcoming_shifts:
+        block_key = (row["shift_date"].isoformat(), row["start_label"], row["end_label"])
+        block = block_map.get(block_key)
+        if not block:
+            block = {
+                "shift_date": row["shift_date"],
+                "start_label": row["start_label"],
+                "end_label": row["end_label"],
+                "employees": [],
+            }
+            block_map[block_key] = block
+        label = row["employee"]
+        if row.get("employee_title"):
+            label = f"{label} ({row['employee_title']})"
+        block["employees"].append(label)
+    grouped_upcoming_blocks = sorted(
+        block_map.values(),
+        key=lambda b: (b["shift_date"], b["start_label"], b["end_label"]),
+    )
     cur.execute(
         """
         SELECT
@@ -2411,7 +2453,7 @@ def manager_dashboard():
         """
     )
     schedule_history = cur.fetchall()
-    calendar_weeks = _build_two_week_calendar(calendar_start, upcoming_shifts)
+    calendar_weeks = _build_two_week_calendar(calendar_start, grouped_upcoming_blocks)
     cur.close()
 
     return render_template(
@@ -2739,8 +2781,8 @@ def manager_schedule():
                 "end_time": row["end_time"],
                 "start_label": row["start_label"],
                 "end_label": row["end_label"],
-                "start_value": row["start_time"].strftime("%H:%M"),
-                "end_value": row["end_time"].strftime("%H:%M"),
+                "start_value": _format_time_hhmm(row["start_time"]),
+                "end_value": _format_time_hhmm(row["end_time"]),
                 "employee_user_ids": [],
                 "employees": [],
             }
@@ -3059,15 +3101,13 @@ def manager_classes():
         class_date = request.form.get("class_date", "").strip()
         start_time = request.form.get("start_time", "").strip()
         end_time = request.form.get("end_time", "").strip()
-        min_age = request.form.get("min_age", type=int)
-        max_age = request.form.get("max_age", type=int)
         min_belt_index = request.form.get("min_belt_index", type=int)
         max_belt_index = request.form.get("max_belt_index", type=int)
         is_recurring_weekly = request.form.get("is_recurring_weekly") == "on"
         recurrence_end_date = request.form.get("recurrence_end_date", "").strip()
         default_min_age, default_max_age = _default_age_range_for_track(program_track)
-        min_age = min_age if min_age is not None else default_min_age
-        max_age = max_age if max_age is not None else default_max_age
+        min_age = default_min_age
+        max_age = default_max_age
         min_belt_index = min_belt_index if min_belt_index is not None else 0
         max_belt_index = max_belt_index if max_belt_index is not None else len(BELT_SEQUENCE) - 1
 

@@ -54,11 +54,14 @@
                   <input type="text" name="end_time" value="{{ block.end_label }}" placeholder="6:00 PM" required />
                 </label>
                 <label>Employees
-                  <select name="employee_user_ids" multiple size="6" required>
+                  <div class="employee-checkbox-list">
                     {% for employee in employees %}
-                      <option value="{{ employee.id }}" {% if employee.id in block.employee_user_ids %}selected{% endif %}>{{ employee.username }}{% if employee.employee_title %} ({{ employee.employee_title }}){% endif %}</option>
+                      <label class="employee-checkbox-item">
+                        <input type="checkbox" name="employee_user_ids" value="{{ employee.id }}" {% if employee.id in block.employee_user_ids %}checked{% endif %} />
+                        <span>{{ employee.username }}{% if employee.employee_title %} ({{ employee.employee_title }}){% endif %}</span>
+                      </label>
                     {% endfor %}
-                  </select>
+                  </div>
                 </label>
                 <button type="submit">Save</button>
               </form>
@@ -93,11 +96,14 @@
         </label>
       </div>
       <label>Employees Working This Block
-        <select name="employee_user_ids" multiple size="8" required>
+        <div class="employee-checkbox-list">
           {% for employee in employees %}
-            <option value="{{ employee.id }}">{{ employee.username }}{% if employee.employee_title %} ({{ employee.employee_title }}){% endif %}</option>
+            <label class="employee-checkbox-item">
+              <input type="checkbox" name="employee_user_ids" value="{{ employee.id }}" />
+              <span>{{ employee.username }}{% if employee.employee_title %} ({{ employee.employee_title }}){% endif %}</span>
+            </label>
           {% endfor %}
-        </select>
+        </div>
       </label>
       <button type="submit">Add Block</button>
     </form>

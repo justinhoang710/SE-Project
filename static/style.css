@@ -211,6 +211,30 @@ td[colspan] { text-align: center; color: var(--text-muted); }
   padding: 0.52rem;
 }
 
+.employee-checkbox-list {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 0.45rem;
+}
+
+.employee-checkbox-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-weight: 500;
+}
+
+.employee-checkbox-item input {
+  width: auto;
+  margin: 0;
+}
+
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 
 .manager-calendar {
