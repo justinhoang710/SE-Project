@@ -304,6 +304,17 @@ td[colspan] { text-align: center; color: var(--text-muted); }
   margin-top: 0.06rem;
 }
 
+.child-dashboard-scroll {
+  display: flex;
+  gap: 0.7rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+}
+
+.child-dashboard-card {
+  flex: 0 0 min(560px, 92vw);
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

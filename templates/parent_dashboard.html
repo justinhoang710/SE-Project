@@ -1,28 +1,30 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card">
-  <h2>Parent Home</h2>
+  <h2>Parent Dashboard</h2>
+  <p class="hint">Academy class schedule and instructor notes.</p>
 </section>
 
 <section class="card">
   <h3>Academy Schedule (Next 2 Weeks)</h3>
   <div class="section-tools">
     <label>Search
-      <input type="search" placeholder="Date, track, time block" data-table-filter="academy-schedule-table" />
+      <input type="search" placeholder="Date, track, class" data-table-filter="academy-schedule-table" />
     </label>
   </div>
   <div class="table-shell tall">
     <table id="academy-schedule-table">
-      <tr><th>Date</th><th>Time</th><th>Staff</th></tr>
+      <tr><th>Date</th><th>Time</th><th>Track</th><th>Class</th></tr>
       <tbody>
       {% for cls in academy_schedule %}
         <tr>
           <td>{{ cls.shift_date }}</td>
           <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
-          <td>{{ cls.employee }}</td>
+          <td>{{ cls.program_track|track_label }}</td>
+          <td>{{ cls.class_name }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="3">No classes scheduled.</td></tr>
+        <tr><td colspan="4">No classes scheduled.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -30,95 +32,29 @@
 </section>
 
 <section class="card">
-  <h3>Class Signup</h3>
+  <h3>Instructor Notes</h3>
   <div class="section-tools">
-    <label>Search Offerings
-      <input type="search" placeholder="Track, class, date" data-table-filter="parent-signup-table" />
+    <label>Search
+      <input type="search" placeholder="Child, instructor, note" data-table-filter="parent-notes-table" />
     </label>
   </div>
   <div class="table-shell tall">
-    <table id="parent-signup-table">
-      <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Eligibility</th><th>Signup</th></tr>
+    <table id="parent-notes-table">
+      <tr><th>Child</th><th>Sent By</th><th>Role</th><th>Sent At</th><th>Note</th></tr>
       <tbody>
-      {% for cls in signup_classes %}
+      {% for note in notes_feed %}
         <tr>
-          <td>{{ cls.program_track|track_label }}</td>
-          <td>{{ cls.class_date }}</td>
-          <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
-          <td>{{ cls.class_name }}</td>
-          <td>Track must match | {{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>
-          <td>
-            {% for child in children %}
-              {% set signup_key = child.id|string ~ ':' ~ cls.id|string %}
-              {% set block_reason = signup_block_reasons.get(signup_key) %}
-              <form class="inline" method="post" action="{{ url_for('parent_signup', offering_id=cls.id, child_id=child.id) }}">
-                {% if block_reason %}
-                  <button type="submit" disabled>{{ child.child_name }}: {{ block_reason }}</button>
-                {% else %}
-                  <button type="submit">Sign Up {{ child.child_name }}</button>
-                {% endif %}
-              </form>
-            {% endfor %}
-          </td>
+          <td>{{ note.child_name }}</td>
+          <td>{{ note.author_username }}</td>
+          <td>{{ note.author_role }}</td>
+          <td>{{ note.created_at }}</td>
+          <td>{{ note.note_text }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="6">No class offerings loaded yet.</td></tr>
+        <tr><td colspan="5">No instructor notes yet.</td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
-
-{% for child in children %}
-<section class="card">
-  <h3>{{ child.child_name }}</h3>
-  <p class="hint">Track: {{ child.program_track|track_label }} | Belt: {{ child.current_belt }}</p>
-
-  <details class="section-collapse" open>
-    <summary>Signed-Up Classes And Attendance</summary>
-    <div class="table-shell" style="margin-top: 0.5rem;">
-      <table>
-        <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Enrolled On</th><th>Attendance</th></tr>
-        <tbody>
-        {% for row in signed_up_classes_by_child[child.id] %}
-          <tr>
-            <td>{{ row.program_track|track_label }}</td>
-            <td>{{ row.class_date }}</td>
-            <td>{{ row.start_label }}-{{ row.end_label }}</td>
-            <td>{{ row.class_name }}</td>
-            <td>{{ row.enrolled_at }}</td>
-            <td>{{ row.attendance_status }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="6">No class signups yet for this student.</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-
-  <details class="section-collapse" style="margin-top: 0.55rem;">
-    <summary>Instructor Notes</summary>
-    <div class="table-shell" style="margin-top: 0.5rem;">
-      <table>
-        <tr><th>Sent By</th><th>Role</th><th>Sent At</th><th>Note</th></tr>
-        <tbody>
-        {% for note in child_parent_notes[child.id] %}
-          <tr>
-            <td>{{ note.author_username }}</td>
-            <td>{{ note.author_role }}</td>
-            <td>{{ note.created_at }}</td>
-            <td>{{ note.note_text }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="4">No notes from instructors yet.</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-</section>
-{% else %}
-<section class="card"><p>No students linked to this account.</p></section>
-{% endfor %}
 {% endblock %}

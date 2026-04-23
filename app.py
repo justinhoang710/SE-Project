@@ -3778,11 +3778,11 @@ def parent_signup(offering_id, child_id):
     if not offering:
         cur.close()
         flash("Class offering not found.", "error")
-        return redirect(url_for("parent_dashboard"))
+        return redirect(url_for("parent_children_dashboard"))
     if offering["class_date"] < date.today():
         cur.close()
         flash("Cannot sign up for a class that already happened.", "error")
-        return redirect(url_for("parent_dashboard"))
+        return redirect(url_for("parent_children_dashboard"))
 
     cur.execute(
         """
@@ -3797,12 +3797,12 @@ def parent_signup(offering_id, child_id):
     if not child:
         cur.close()
         flash("Student not found for this parent account.", "error")
-        return redirect(url_for("parent_dashboard"))
+        return redirect(url_for("parent_children_dashboard"))
     eligible, reason = _is_child_eligible_for_offering(child, offering)
     if not eligible:
         cur.close()
         flash(f"Student not eligible for this class: {reason}.", "error")
-        return redirect(url_for("parent_dashboard"))
+        return redirect(url_for("parent_children_dashboard"))
 
     cur.execute(
         """
@@ -3818,7 +3818,7 @@ def parent_signup(offering_id, child_id):
     if existing_enrollment:
         cur.close()
         flash("Student is already enrolled in this class.", "info")
-        return redirect(url_for("parent_dashboard"))
+        return redirect(url_for("parent_children_dashboard"))
 
     cur.execute(
         """
@@ -3837,7 +3837,7 @@ def parent_signup(offering_id, child_id):
             f"Weekly limit reached: a student can only sign up for {MAX_CLASSES_PER_WEEK} classes.",
             "error",
         )
-        return redirect(url_for("parent_dashboard"))
+        return redirect(url_for("parent_children_dashboard"))
 
     try:
         cur.execute(
@@ -3857,18 +3857,10 @@ def parent_signup(offering_id, child_id):
             flash(f"Class signup failed: {exc}", "error")
     finally:
         cur.close()
-    return redirect(url_for("parent_dashboard"))
+    return redirect(url_for("parent_children_dashboard"))
 
 
-@app.route("/parent")
-@login_required
-@role_required("parent")
-def parent_dashboard():
-    # Show parent-facing academy schedule, class signups, attendance, and instructor notes.
-    db = get_db()
-    cur = db.cursor(dictionary=True)
-    _ensure_feature_schema(cur)
-
+def _build_parent_children_payload(cur, parent_user_id):
     cur.execute(
         """
         SELECT id, child_name, program_track, belt_index, child_age
@@ -3876,47 +3868,12 @@ def parent_dashboard():
         WHERE parent_user_id = %s
         ORDER BY child_name
         """,
-        (session["user_id"],),
+        (parent_user_id,),
     )
     children = cur.fetchall()
     for child in children:
         child["program_track"] = _normalize_track(child.get("program_track"))
         child["current_belt"] = _belt_name_for_index(child.get("belt_index"))
-
-    calendar_start = date.today()
-    calendar_end = calendar_start + timedelta(days=13)
-    cur.execute(
-        """
-        SELECT
-            s.shift_date,
-            TIME_FORMAT(s.start_time, '%h:%i %p') AS start_label,
-            TIME_FORMAT(s.end_time, '%h:%i %p') AS end_label,
-            s.class_name AS time_block_label,
-            s.program_track,
-            u.username AS employee
-        FROM shifts s
-        JOIN users u ON u.id = s.employee_user_id
-        ORDER BY s.shift_date, s.start_time
-        """
-    )
-    academy_schedule = cur.fetchall()
-
-    cur.execute(
-        """
-        SELECT
-            s.shift_date,
-            s.class_name,
-            u.username AS employee,
-            TIME_FORMAT(s.start_time, '%h:%i %p') AS start_label,
-            TIME_FORMAT(s.end_time, '%h:%i %p') AS end_label
-        FROM shifts s
-        JOIN users u ON u.id = s.employee_user_id
-        WHERE s.shift_date BETWEEN %s AND %s
-        ORDER BY s.shift_date, s.start_time
-        """,
-        (calendar_start, calendar_end),
-    )
-    academy_calendar_weeks = _build_two_week_calendar(calendar_start, cur.fetchall())
 
     cur.execute(
         """
@@ -4048,19 +4005,92 @@ def parent_dashboard():
             if not eligible:
                 signup_block_reasons[key] = reason
 
-    child_parent_notes = _fetch_parent_notes_rows(cur, child_ids)
+    return {
+        "children": children,
+        "signup_classes": signup_classes,
+        "signed_up_classes_by_child": signed_up_classes_by_child,
+        "enrolled_lookup": enrolled_lookup,
+        "signup_block_reasons": signup_block_reasons,
+    }
+
+
+@app.route("/parent")
+@login_required
+@role_required("parent")
+def parent_dashboard():
+    # Parent dashboard: academy schedule + instructor notes.
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
+
+    calendar_start = date.today()
+    calendar_end = calendar_start + timedelta(days=13)
+    cur.execute(
+        """
+        SELECT
+            co.class_date AS shift_date,
+            co.class_name,
+            co.program_track,
+            TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label
+        FROM class_offerings co
+        WHERE co.class_date BETWEEN %s AND %s
+        ORDER BY co.class_date, co.start_time
+        """,
+        (calendar_start, calendar_end),
+    )
+    academy_schedule = cur.fetchall()
+    cur.execute(
+        """
+        SELECT id, child_name
+        FROM children
+        WHERE parent_user_id = %s
+        ORDER BY child_name
+        """,
+        (session["user_id"],),
+    )
+    children = cur.fetchall()
+    child_ids = [int(child["id"]) for child in children]
+    child_notes = _fetch_parent_notes_rows(cur, child_ids)
+    notes_feed = []
+    for child in children:
+        for note in child_notes.get(child["id"], []):
+            notes_feed.append(
+                {
+                    "child_name": child["child_name"],
+                    "author_username": note.get("author_username"),
+                    "author_role": note.get("author_role"),
+                    "created_at": note.get("created_at"),
+                    "note_text": note.get("note_text"),
+                }
+            )
+    notes_feed.sort(key=lambda row: row.get("created_at") or datetime.min, reverse=True)
     cur.close()
     return render_template(
         "parent_dashboard.html",
-        children=children,
         academy_schedule=academy_schedule,
-        academy_calendar_weeks=academy_calendar_weeks,
-        signup_classes=signup_classes,
-        signed_up_classes_by_child=signed_up_classes_by_child,
-        enrolled_lookup=enrolled_lookup,
-        signup_block_reasons=signup_block_reasons,
+        notes_feed=notes_feed,
+    )
+
+
+@app.route("/parent/children")
+@login_required
+@role_required("parent")
+def parent_children_dashboard():
+    # Child dashboard: class signup + each child's schedule.
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
+    payload = _build_parent_children_payload(cur, session["user_id"])
+    cur.close()
+    return render_template(
+        "parent_children_dashboard.html",
+        children=payload["children"],
+        signup_classes=payload["signup_classes"],
+        signed_up_classes_by_child=payload["signed_up_classes_by_child"],
+        enrolled_lookup=payload["enrolled_lookup"],
+        signup_block_reasons=payload["signup_block_reasons"],
         max_classes_per_week=MAX_CLASSES_PER_WEEK,
-        child_parent_notes=child_parent_notes,
         belt_sequence=BELT_SEQUENCE,
     )
 

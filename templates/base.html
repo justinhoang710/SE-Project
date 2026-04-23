@@ -60,7 +60,7 @@
           { label: 'Staff Accounts', hint: 'Create manager/employee logins', href: {{ url_for('manager_staff_accounts')|tojson }}, endpoints: ['manager_staff_accounts'] },
           { label: 'Techniques', hint: 'Edit technique list', href: {{ url_for('techniques')|tojson }}, endpoints: ['techniques'] },
           {% elif session.get('role') == 'parent' %}
-          { label: 'My Child Dashboard', hint: 'Schedule and attendance', href: {{ url_for('parent_dashboard')|tojson }}, endpoints: ['parent_dashboard'] },
+          { label: 'My Child Dashboard', hint: 'Schedules and signups', href: {{ url_for('parent_children_dashboard')|tojson }}, endpoints: ['parent_children_dashboard'] },
           {% endif %}
           { label: 'Account', hint: 'Email and password', href: {{ url_for('account_settings')|tojson }}, endpoints: ['account_settings'] },
           { label: 'Log Out', hint: 'Sign out securely', href: {{ url_for('logout')|tojson }}, endpoints: ['logout'] }
