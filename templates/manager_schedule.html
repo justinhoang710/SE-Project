@@ -2,23 +2,23 @@
 {% block content %}
 <section class="card">
   <h2>Manager Schedule Editor</h2>
+  <p class="hint">Schedule by day and hours only.</p>
   <div class="section-tools">
     <label>Search Schedule
-      <input type="search" placeholder="Date, class, employee, time" data-table-filter="manager-schedule-table" />
+      <input type="search" placeholder="Date, employee, time" data-table-filter="manager-schedule-table" />
     </label>
   </div>
   <div class="table-shell tall">
     <table id="manager-schedule-table">
-      <tr><th>Date</th><th>Time</th><th>Class</th><th>Employee</th></tr>
+      <tr><th>Date</th><th>Time</th><th>Employees Working Together</th></tr>
       <tbody>
       {% for week in calendar_weeks %}
         {% for day in week %}
-          {% for shift in day.shifts %}
+          {% for block in day.shifts %}
             <tr>
               <td>{{ day.weekday_short }} {{ day.display_date }}</td>
-              <td class="mono">{{ shift.start_label }}-{{ shift.end_label }}</td>
-              <td>{{ shift.class_name }}</td>
-              <td>{{ shift.employee }}</td>
+              <td class="mono">{{ block.start_label }}-{{ block.end_label }}</td>
+              <td>{{ block.employees|join(', ') }}</td>
             </tr>
           {% endfor %}
         {% endfor %}
@@ -33,74 +33,94 @@
 
   <div class="table-shell">
     <table>
-      <tr><th>Time</th><th>Class</th><th>Employee</th><th>Edit</th></tr>
+      <tr><th>Time</th><th>Employees Working Together</th><th>Edit</th></tr>
       <tbody>
-      {% for shift in selected_day_shifts %}
+      {% for block in selected_day_blocks %}
         <tr>
-          <td class="mono">{{ shift.start_label }}-{{ shift.end_label }}</td>
-          <td>{{ shift.class_name }}</td>
-          <td>{{ shift.employee }}</td>
+          <td class="mono">{{ block.start_label }}-{{ block.end_label }}</td>
+          <td>{{ block.employees|join(', ') }}</td>
           <td>
             <details>
               <summary><strong>Edit</strong></summary>
               <form method="post" class="shift-editor" style="margin-top: 0.4rem;">
-                <input type="hidden" name="action" value="update_shift" />
+                <input type="hidden" name="action" value="update_block" />
                 <input type="hidden" name="selected_day" value="{{ selected_day.isoformat() }}" />
-                <input type="hidden" name="shift_id" value="{{ shift.id }}" />
+                <input type="hidden" name="original_start_time" value="{{ block.start_value }}" />
+                <input type="hidden" name="original_end_time" value="{{ block.end_value }}" />
                 <label>Start
-                  <input type="time" name="start_time" value="{{ shift.start_label }}" required />
+                  <input type="text" name="start_time" value="{{ block.start_label }}" placeholder="4:30 PM" required />
                 </label>
                 <label>End
-                  <input type="time" name="end_time" value="{{ shift.end_label }}" required />
+                  <input type="text" name="end_time" value="{{ block.end_label }}" placeholder="6:00 PM" required />
                 </label>
-                <label>Class Name
-                  <input type="text" name="class_name" value="{{ shift.class_name }}" required />
-                </label>
-                <label>Employee
-                  <select name="employee_user_id" required>
+                <label>Employees
+                  <select name="employee_user_ids" multiple size="6" required>
                     {% for employee in employees %}
-                      <option value="{{ employee.id }}" {% if employee.id == shift.employee_user_id %}selected{% endif %}>{{ employee.username }}</option>
+                      <option value="{{ employee.id }}" {% if employee.id in block.employee_user_ids %}selected{% endif %}>{{ employee.username }}{% if employee.employee_title %} ({{ employee.employee_title }}){% endif %}</option>
                     {% endfor %}
                   </select>
                 </label>
                 <button type="submit">Save</button>
               </form>
+              <form method="post" class="inline" style="margin-top: 0.35rem;">
+                <input type="hidden" name="action" value="delete_block" />
+                <input type="hidden" name="selected_day" value="{{ selected_day.isoformat() }}" />
+                <input type="hidden" name="original_start_time" value="{{ block.start_value }}" />
+                <input type="hidden" name="original_end_time" value="{{ block.end_value }}" />
+                <button type="submit" class="danger">Delete Block</button>
+              </form>
             </details>
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="4">No shifts for this day.</td></tr>
+        <tr><td colspan="3">No shifts for this day.</td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
 
   <details class="section-collapse" style="margin-top: 0.55rem;" open>
-    <summary>Add Shift</summary>
+    <summary>Add Time Block</summary>
     <form method="post" class="create-shift-form">
-      <input type="hidden" name="action" value="create" />
+      <input type="hidden" name="action" value="create_block" />
       <input type="hidden" name="selected_day" value="{{ selected_day.isoformat() }}" />
       <div class="section-tools">
         <label>Start
-          <input type="time" name="start_time" required />
+          <input type="text" name="start_time" placeholder="4:30 PM" required />
         </label>
         <label>End
-          <input type="time" name="end_time" required />
+          <input type="text" name="end_time" placeholder="6:00 PM" required />
         </label>
       </div>
-      <label>Class Name
-        <input type="text" name="class_name" placeholder="Beginner Class" required />
-      </label>
-      <label>Employee
-        <select name="employee_user_id" required>
-          <option value="">Select employee</option>
+      <label>Employees Working This Block
+        <select name="employee_user_ids" multiple size="8" required>
           {% for employee in employees %}
-            <option value="{{ employee.id }}">{{ employee.username }}</option>
+            <option value="{{ employee.id }}">{{ employee.username }}{% if employee.employee_title %} ({{ employee.employee_title }}){% endif %}</option>
           {% endfor %}
         </select>
       </label>
-      <button type="submit">Add Shift</button>
+      <button type="submit">Add Block</button>
     </form>
   </details>
+</section>
+
+<section class="card">
+  <h3>Current Week Hours</h3>
+  <div class="table-shell">
+    <table>
+      <tr><th>Employee</th><th>Title</th><th>Total Hours</th></tr>
+      <tbody>
+      {% for row in weekly_hours_by_employee %}
+        <tr>
+          <td>{{ row.username }}</td>
+          <td>{{ row.employee_title }}</td>
+          <td>{{ row.total_hours or 0 }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">No hours recorded.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endblock %}

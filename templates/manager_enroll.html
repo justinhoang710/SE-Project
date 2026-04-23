@@ -30,6 +30,9 @@
           {% endfor %}
         </select>
       </label>
+      <label>Age
+        <input type="number" name="child_age" min="4" max="99" required />
+      </label>
     </div>
     <div class="section-tools">
       <label>Guardian Name (optional)
@@ -56,6 +59,10 @@
       </select>
     </label>
   </form>
+  {% set selected_class = offerings|selectattr('id', 'equalto', selected_offering_id)|list|first %}
+  {% if selected_class %}
+    <p class="hint">Eligibility: Ages {{ selected_class.min_age }}-{{ selected_class.max_age }} | Belts {{ belt_sequence[selected_class.min_belt_index] }}-{{ belt_sequence[selected_class.max_belt_index] }}</p>
+  {% endif %}
 
   <form method="post">
     <input type="hidden" name="action" value="enroll_students" />
@@ -69,27 +76,38 @@
 
     <div class="table-shell tall">
       <table id="enroll-student-table">
-        <tr><th>Select</th><th>Student</th><th>Parent</th><th>Track</th><th>Belt</th><th>Status</th></tr>
-        <tbody>
-        {% for child in all_students %}
-          <tr class="enroll-row" data-search="{{ (child.child_name ~ ' ' ~ child.parent_username ~ ' ' ~ (track_labels[child.program_track]) ~ ' ' ~ child.current_belt)|lower }}">
-            <td>
-              {% if child.id in enrolled_ids %}
-                -
-              {% else %}
-                <input class="enroll-checkbox" type="checkbox" name="child_ids" value="{{ child.id }}" />
-              {% endif %}
-            </td>
-            <td>{{ child.child_name }}</td>
-            <td>{{ child.parent_username }}</td>
-            <td>{{ child.program_track|track_label }}</td>
-            <td>{{ child.current_belt }}</td>
-            <td>{% if child.id in enrolled_ids %}Already enrolled{% else %}Available{% endif %}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="6">No students found.</td></tr>
-        {% endfor %}
-        </tbody>
+      <tr><th>Select</th><th>Student</th><th>Parent</th><th>Age</th><th>Track</th><th>Belt</th><th>Status</th></tr>
+      <tbody>
+      {% for child in all_students %}
+        <tr class="enroll-row" data-search="{{ (child.child_name ~ ' ' ~ child.parent_username ~ ' ' ~ (track_labels[child.program_track]) ~ ' ' ~ child.current_belt)|lower }}">
+          <td>
+            {% if child.id in enrolled_ids %}
+              -
+            {% elif not child.eligible_for_selected %}
+              -
+            {% else %}
+              <input class="enroll-checkbox" type="checkbox" name="child_ids" value="{{ child.id }}" />
+            {% endif %}
+          </td>
+          <td>{{ child.child_name }}</td>
+          <td>{{ child.parent_username }}</td>
+          <td>{{ child.child_age }}</td>
+          <td>{{ child.program_track|track_label }}</td>
+          <td>{{ child.current_belt }}</td>
+          <td>
+            {% if child.id in enrolled_ids %}
+              Already enrolled
+            {% elif not child.eligible_for_selected %}
+              {{ child.ineligible_reason }}
+            {% else %}
+              Available
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+          <tr><td colspan="7">No students found.</td></tr>
+      {% endfor %}
+      </tbody>
       </table>
     </div>
 
@@ -102,17 +120,18 @@
   <h3>Selected Class Roster</h3>
   <div class="table-shell">
     <table>
-      <tr><th>Student</th><th>Track</th><th>Belt</th><th>Status</th></tr>
+      <tr><th>Student</th><th>Age</th><th>Track</th><th>Belt</th><th>Status</th></tr>
       <tbody>
       {% for child in selected_roster %}
         <tr>
           <td>{{ child.child_name }}</td>
+          <td>{{ child.child_age }}</td>
           <td>{{ child.program_track|track_label }}</td>
           <td>{{ child.current_belt }}</td>
           <td>Enrolled</td>
         </tr>
       {% else %}
-        <tr><td colspan="4">No students enrolled in this class yet.</td></tr>
+          <tr><td colspan="5">No students enrolled in this class yet.</td></tr>
       {% endfor %}
       </tbody>
     </table>

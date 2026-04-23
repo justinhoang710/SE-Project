@@ -14,14 +14,15 @@
 
 <section class="card">
   <h3>My Shifts (Next 2 Weeks)</h3>
+  <p class="hint">Current week scheduled hours: {{ weekly_hours }}</p>
   <div class="section-tools">
     <label>Search
-      <input type="search" placeholder="Date, class, time" data-table-filter="employee-shift-table" />
+      <input type="search" placeholder="Date, time" data-table-filter="employee-shift-table" />
     </label>
   </div>
   <div class="table-shell tall">
     <table id="employee-shift-table">
-      <tr><th>Date</th><th>Time</th><th>Class</th><th>Actions</th></tr>
+      <tr><th>Date</th><th>Time</th><th>Actions</th></tr>
       <tbody>
       {% for week in calendar_weeks %}
         {% for day in week %}
@@ -29,7 +30,6 @@
             <tr>
               <td>{{ day.weekday_short }} {{ day.display_date }}</td>
               <td class="mono">{{ shift.start_label }}-{{ shift.end_label }}</td>
-              <td>{{ shift.class_name }}</td>
               <td>
                 <a class="button secondary" href="{{ url_for('request_switch', shift_id=shift.id, shift_date=day.iso_date) }}">Switch</a>
                 <a class="button danger" href="{{ url_for('request_callout', shift_id=shift.id, shift_date=day.iso_date) }}">Call-Out</a>
@@ -52,7 +52,7 @@
       {% for req in incoming_switch_requests %}
         <tr>
           <td>{{ req.requester }}</td>
-          <td>{{ req.shift_date }} {{ req.start_time }}-{{ req.end_time }} ({{ req.class_name }})</td>
+          <td>{{ req.shift_date }} {{ req.start_time|time12 }}-{{ req.end_time|time12 }}</td>
           <td>{{ req.reason }}</td>
           <td>
             <form class="inline" method="post" action="{{ url_for('respond_switch_request', request_id=req.id, action='accept') }}">
@@ -93,7 +93,7 @@
           </td>
           <td>
             {% if r.shift_date %}
-              {{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})
+              {{ r.shift_date }} {{ r.start_time|time12 }}-{{ r.end_time|time12 }}
             {% else %}
               N/A
             {% endif %}

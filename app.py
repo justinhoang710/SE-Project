@@ -3,6 +3,7 @@ import hashlib
 import hmac
 from datetime import date, datetime, timedelta
 from functools import wraps
+from secrets import token_urlsafe
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 
@@ -27,8 +28,8 @@ BELT_SEQUENCE = [
 ]
 TRACK_LABELS = {
     "little_dragons": "Little Dragons (Age 4)",
-    "kids_martial_arts": "Kids Martial Arts (Ages 5-12)",
-    "adult_martial_arts": "Teen & Adult Martial Arts (Ages 13+)",
+    "kids_martial_arts": "Kids Martial Arts (Ages 5-14)",
+    "adult_martial_arts": "Teen & Adult Martial Arts (Ages 15+)",
 }
 TRACK_NORMALIZATION = {
     "kid": "kids_martial_arts",
@@ -44,6 +45,9 @@ TRACK_NORMALIZATION = {
 PROGRAM_TRACKS = tuple(TRACK_LABELS.keys())
 MAX_CLASSES_PER_WEEK = 3
 LEARNED_TARGET = 3
+EMPLOYEE_TITLES = ("Assistant", "Assistant Instructor", "Instructor")
+MIN_CHILD_AGE = 4
+MAX_CHILD_AGE = 99
 
 
 def _belt_name_for_index(belt_index):
@@ -107,6 +111,7 @@ def _ensure_feature_schema(cur):
     alter_statements = [
         "ALTER TABLE children ADD COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
         "ALTER TABLE children ADD COLUMN belt_index INT NOT NULL DEFAULT 0",
+        "ALTER TABLE children ADD COLUMN child_age INT NOT NULL DEFAULT 14",
         "ALTER TABLE techniques ADD COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
         "ALTER TABLE techniques ADD COLUMN belt_name VARCHAR(40) NOT NULL DEFAULT 'White'",
         "ALTER TABLE child_skill_progress ADD COLUMN learned_count TINYINT NOT NULL DEFAULT 0",
@@ -116,7 +121,18 @@ def _ensure_feature_schema(cur):
         "ALTER TABLE children ADD COLUMN guardian_name VARCHAR(120) NULL",
         "ALTER TABLE children ADD COLUMN contact_phone VARCHAR(40) NULL",
         "ALTER TABLE requests ADD COLUMN switch_target_status ENUM('pending','accepted','rejected') NOT NULL DEFAULT 'pending'",
+        "ALTER TABLE requests ADD COLUMN replacement_employee_id INT NULL",
+        "ALTER TABLE requests ADD CONSTRAINT fk_requests_replacement_employee FOREIGN KEY (replacement_employee_id) REFERENCES users(id)",
         "ALTER TABLE class_offerings ADD COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
+        "ALTER TABLE class_offerings ADD COLUMN min_age INT NOT NULL DEFAULT 5",
+        "ALTER TABLE class_offerings ADD COLUMN max_age INT NOT NULL DEFAULT 14",
+        "ALTER TABLE class_offerings ADD COLUMN min_belt_index INT NOT NULL DEFAULT 0",
+        "ALTER TABLE class_offerings ADD COLUMN max_belt_index INT NOT NULL DEFAULT 9",
+        "ALTER TABLE shifts ADD COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
+        "ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL UNIQUE",
+        "ALTER TABLE users ADD COLUMN email_verified TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN email_verification_token VARCHAR(120) NULL",
+        "ALTER TABLE users ADD COLUMN employee_title VARCHAR(40) NOT NULL DEFAULT 'Assistant'",
     ]
     for statement in alter_statements:
         try:
@@ -277,6 +293,34 @@ def _ensure_feature_schema(cur):
           UNIQUE KEY uq_staff_class_signup (offering_id, staff_user_id),
           FOREIGN KEY (offering_id) REFERENCES class_offerings(id),
           FOREIGN KEY (staff_user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schedule_history (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          shift_id INT NOT NULL,
+          activity_type VARCHAR(40) NOT NULL,
+          details_text TEXT NOT NULL,
+          activity_date DATE NOT NULL,
+          actor_user_id INT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (shift_id) REFERENCES shifts(id),
+          FOREIGN KEY (actor_user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS outgoing_emails (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          to_user_id INT NOT NULL,
+          to_email VARCHAR(255) NOT NULL,
+          subject_line VARCHAR(255) NOT NULL,
+          body_text TEXT NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (to_user_id) REFERENCES users(id)
         )
         """
     )
@@ -498,10 +542,125 @@ def _build_two_week_calendar(start_date, shifts):
 
 
 def _parse_time_value(value):
-    try:
-        return datetime.strptime((value or "").strip(), "%H:%M").time()
-    except ValueError:
+    raw_value = (value or "").strip()
+    if not raw_value:
         return None
+    for fmt in ("%H:%M", "%I:%M %p", "%I %p"):
+        try:
+            return datetime.strptime(raw_value.upper(), fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
+def _format_time_12h(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        parsed = _parse_time_value(value)
+        if not parsed:
+            return value
+        value = parsed
+    try:
+        return value.strftime("%I:%M %p").lstrip("0")
+    except Exception:
+        return str(value)
+
+
+def _format_date_label(value):
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    return str(value or "")
+
+
+def _shift_hours(start_time, end_time):
+    if not start_time or not end_time:
+        return 0.0
+    start_dt = datetime.combine(date.today(), start_time)
+    end_dt = datetime.combine(date.today(), end_time)
+    if end_dt <= start_dt:
+        return 0.0
+    return round((end_dt - start_dt).total_seconds() / 3600.0, 2)
+
+
+def _default_age_range_for_track(track):
+    normalized = _normalize_track(track)
+    if normalized == "little_dragons":
+        return 4, 4
+    if normalized == "kids_martial_arts":
+        return 5, 14
+    return 15, 99
+
+
+def _queue_parent_email(cur, parent_user_id, subject_line, body_text):
+    cur.execute(
+        """
+        SELECT id, email
+        FROM users
+        WHERE id = %s
+          AND role = 'parent'
+        LIMIT 1
+        """,
+        (parent_user_id,),
+    )
+    parent = cur.fetchone()
+    if not parent or not parent.get("email"):
+        return
+    cur.execute(
+        """
+        INSERT INTO outgoing_emails (to_user_id, to_email, subject_line, body_text)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (parent["id"], parent["email"], subject_line, body_text),
+    )
+
+
+def _is_child_eligible_for_offering(child_row, offering_row):
+    child_track = _normalize_track(child_row.get("program_track"))
+    class_track = _normalize_track(offering_row.get("program_track"))
+    if child_track != class_track:
+        return False, "Track mismatch"
+
+    child_age = int(child_row.get("child_age") or 0)
+    min_age = int(offering_row.get("min_age") or 0)
+    max_age = int(offering_row.get("max_age") or MAX_CHILD_AGE)
+    if child_age and (child_age < min_age or child_age > max_age):
+        return False, f"Age must be {min_age}-{max_age}"
+
+    child_belt = int(child_row.get("belt_index") or 0)
+    min_belt = int(offering_row.get("min_belt_index") or 0)
+    max_belt = int(offering_row.get("max_belt_index") or len(BELT_SEQUENCE) - 1)
+    if child_belt < min_belt or child_belt > max_belt:
+        return False, f"Belt must be {BELT_SEQUENCE[min_belt]}-{BELT_SEQUENCE[max_belt]}"
+    return True, ""
+
+
+def _cleanup_schedule_history(cur):
+    cur.execute(
+        "DELETE FROM schedule_history WHERE activity_date < %s",
+        (date.today(),),
+    )
+
+
+def _log_schedule_activity(cur, shift_id, activity_type, details_text, actor_user_id=None):
+    cur.execute(
+        """
+        SELECT shift_date
+        FROM shifts
+        WHERE id = %s
+        """,
+        (shift_id,),
+    )
+    shift = cur.fetchone()
+    if not shift:
+        return
+    cur.execute(
+        """
+        INSERT INTO schedule_history (shift_id, activity_type, details_text, activity_date, actor_user_id)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (shift_id, activity_type, details_text, shift["shift_date"], actor_user_id),
+    )
 
 
 def _is_valid_time_window(start_time_value, end_time_value):
@@ -584,11 +743,17 @@ def track_label_filter(value):
     return _track_label(value)
 
 
+@app.template_filter("time12")
+def time12_filter(value):
+    return _format_time_12h(value)
+
+
 @app.context_processor
 def inject_track_metadata():
     return {
         "track_labels": TRACK_LABELS,
         "program_tracks": PROGRAM_TRACKS,
+        "employee_titles": EMPLOYEE_TITLES,
     }
 
 
@@ -638,8 +803,13 @@ def login():
 
         db = get_db()
         cur = db.cursor(dictionary=True)
+        _ensure_feature_schema(cur)
         cur.execute(
-            "SELECT id, username, password_hash, role FROM users WHERE LOWER(TRIM(username)) = LOWER(%s)",
+            """
+            SELECT id, username, password_hash, role, email_verified
+            FROM users
+            WHERE LOWER(TRIM(username)) = LOWER(%s)
+            """,
             (username,),
         )
         user = cur.fetchone()
@@ -653,6 +823,7 @@ def login():
         session["user_id"] = user["id"]
         session["username"] = user["username"]
         session["role"] = user["role"]
+        session["email_verified"] = int(user.get("email_verified") or 0)
         return redirect(url_for("dashboard"))
 
     return render_template("login.html")
@@ -665,6 +836,8 @@ def register():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         confirm_password = request.form.get("confirm_password", "")
+        email = request.form.get("email", "").strip().lower()
+        child_age = request.form.get("child_age", type=int) or 0
         role = "parent"
         student_name = request.form.get("student_name", "").strip()
         if not student_name:
@@ -677,6 +850,12 @@ def register():
         if len(password) < 6:
             flash("Password must be at least 6 characters.", "error")
             return render_template("register.html")
+        if "@" not in email or "." not in email:
+            flash("A valid email is required.", "error")
+            return render_template("register.html")
+        if child_age < MIN_CHILD_AGE or child_age > MAX_CHILD_AGE:
+            flash(f"Student age must be between {MIN_CHILD_AGE} and {MAX_CHILD_AGE}.", "error")
+            return render_template("register.html")
 
         if password != confirm_password:
             flash("Passwords do not match.", "error")
@@ -688,6 +867,7 @@ def register():
 
         db = get_db()
         cur = db.cursor(dictionary=True)
+        _ensure_feature_schema(cur)
         cur.execute("SELECT id FROM users WHERE username = %s", (username,))
         existing = cur.fetchone()
         if existing:
@@ -695,22 +875,46 @@ def register():
             flash("Username already exists. Choose a different username.", "error")
             return render_template("register.html")
 
+        cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+        email_in_use = cur.fetchone()
+        if email_in_use:
+            cur.close()
+            flash("Email already exists. Use a different email.", "error")
+            return render_template("register.html")
+
+        verification_token = token_urlsafe(32)
         cur.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",
-            (username, hash_password(password), role),
+            """
+            INSERT INTO users (username, password_hash, role, email, email_verified, email_verification_token)
+            VALUES (%s, %s, %s, %s, 0, %s)
+            """,
+            (username, hash_password(password), role, email, verification_token),
         )
         user_id = cur.lastrowid
 
         if role == "parent":
             cur.execute(
-                "INSERT INTO children (child_name, parent_user_id) VALUES (%s, %s)",
-                (student_name, user_id),
+                """
+                INSERT INTO children (child_name, parent_user_id, program_track, child_age)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (
+                    student_name,
+                    user_id,
+                    "little_dragons"
+                    if child_age == 4
+                    else ("adult_martial_arts" if child_age >= 15 else "kids_martial_arts"),
+                    child_age,
+                ),
             )
 
         db.commit()
         cur.close()
 
-        flash("Registration successful. Please login.", "success")
+        flash(
+            f"Registration successful. Verify email: {url_for('verify_email', token=verification_token, _external=False)}",
+            "success",
+        )
         return redirect(url_for("login"))
 
     return render_template("register.html")
@@ -739,6 +943,132 @@ def dashboard():
     return redirect(url_for("logout"))
 
 
+@app.route("/verify-email/<token>")
+def verify_email(token):
+    if not token:
+        flash("Invalid verification token.", "error")
+        return redirect(url_for("login"))
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
+    cur.execute(
+        """
+        SELECT id
+        FROM users
+        WHERE email_verification_token = %s
+        LIMIT 1
+        """,
+        (token,),
+    )
+    user = cur.fetchone()
+    if not user:
+        cur.close()
+        flash("Verification link is invalid or expired.", "error")
+        return redirect(url_for("login"))
+    cur.execute(
+        """
+        UPDATE users
+        SET email_verified = 1,
+            email_verification_token = NULL
+        WHERE id = %s
+        """,
+        (user["id"],),
+    )
+    db.commit()
+    cur.close()
+    flash("Email verified.", "success")
+    return redirect(url_for("login"))
+
+
+@app.route("/account", methods=["GET", "POST"])
+@login_required
+def account_settings():
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
+    user_id = session["user_id"]
+
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        if action == "update_email":
+            email = request.form.get("email", "").strip().lower()
+            if "@" not in email or "." not in email:
+                flash("Valid email is required.", "error")
+                cur.close()
+                return redirect(url_for("account_settings"))
+            cur.execute("SELECT id FROM users WHERE email = %s AND id != %s", (email, user_id))
+            existing_email = cur.fetchone()
+            if existing_email:
+                flash("Email already exists.", "error")
+                cur.close()
+                return redirect(url_for("account_settings"))
+            verification_token = token_urlsafe(32)
+            cur.execute(
+                """
+                UPDATE users
+                SET email = %s,
+                    email_verified = 0,
+                    email_verification_token = %s
+                WHERE id = %s
+                """,
+                (email, verification_token, user_id),
+            )
+            db.commit()
+            session["email_verified"] = 0
+            flash(
+                f"Email updated. Verify email: {url_for('verify_email', token=verification_token, _external=False)}",
+                "success",
+            )
+            cur.close()
+            return redirect(url_for("account_settings"))
+
+        if action == "update_password":
+            current_password = request.form.get("current_password", "")
+            new_password = request.form.get("new_password", "")
+            confirm_password = request.form.get("confirm_password", "")
+            if len(new_password) < 6:
+                flash("New password must be at least 6 characters.", "error")
+                cur.close()
+                return redirect(url_for("account_settings"))
+            if new_password != confirm_password:
+                flash("Password confirmation does not match.", "error")
+                cur.close()
+                return redirect(url_for("account_settings"))
+            cur.execute(
+                "SELECT password_hash FROM users WHERE id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if not row or not verify_password(row["password_hash"], current_password):
+                flash("Current password is incorrect.", "error")
+                cur.close()
+                return redirect(url_for("account_settings"))
+            cur.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (hash_password(new_password), user_id),
+            )
+            db.commit()
+            flash("Password updated.", "success")
+            cur.close()
+            return redirect(url_for("account_settings"))
+
+        flash("Invalid account action.", "error")
+        cur.close()
+        return redirect(url_for("account_settings"))
+
+    cur.execute(
+        """
+        SELECT username, role, email, email_verified, employee_title
+        FROM users
+        WHERE id = %s
+        """,
+        (user_id,),
+    )
+    account = cur.fetchone()
+    cur.close()
+    return render_template("account.html", account=account)
+
+
 @app.route("/manager/staff-accounts", methods=["GET", "POST"])
 @login_required
 @role_required("manager")
@@ -749,10 +1079,29 @@ def manager_staff_accounts():
     _ensure_feature_schema(cur)
 
     if request.method == "POST":
+        action = request.form.get("action", "create").strip()
+        if action == "update_title":
+            staff_user_id = request.form.get("staff_user_id", type=int)
+            employee_title = request.form.get("employee_title", "").strip()
+            if employee_title not in EMPLOYEE_TITLES:
+                flash("Please choose a valid employee title.", "error")
+                cur.close()
+                return redirect(url_for("manager_staff_accounts"))
+            cur.execute(
+                "UPDATE users SET employee_title = %s WHERE id = %s AND role = 'employee'",
+                (employee_title, staff_user_id),
+            )
+            db.commit()
+            flash("Employee title updated.", "success")
+            cur.close()
+            return redirect(url_for("manager_staff_accounts"))
+
         username = request.form.get("username", "").strip()
+        email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         confirm_password = request.form.get("confirm_password", "")
         role = request.form.get("role", "").strip()
+        employee_title = request.form.get("employee_title", "").strip() or EMPLOYEE_TITLES[0]
 
         if role not in {"employee", "manager"}:
             flash("Please choose employee or manager account type.", "error")
@@ -766,8 +1115,16 @@ def manager_staff_accounts():
             flash("Password must be at least 6 characters.", "error")
             cur.close()
             return redirect(url_for("manager_staff_accounts"))
+        if "@" not in email or "." not in email:
+            flash("Valid email is required.", "error")
+            cur.close()
+            return redirect(url_for("manager_staff_accounts"))
         if password != confirm_password:
             flash("Passwords do not match.", "error")
+            cur.close()
+            return redirect(url_for("manager_staff_accounts"))
+        if role == "employee" and employee_title not in EMPLOYEE_TITLES:
+            flash("Please choose a valid employee title.", "error")
             cur.close()
             return redirect(url_for("manager_staff_accounts"))
 
@@ -777,10 +1134,28 @@ def manager_staff_accounts():
             flash("Username already exists.", "error")
             cur.close()
             return redirect(url_for("manager_staff_accounts"))
+        cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+        existing_email = cur.fetchone()
+        if existing_email:
+            flash("Email already exists.", "error")
+            cur.close()
+            return redirect(url_for("manager_staff_accounts"))
 
+        verification_token = token_urlsafe(32)
         cur.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",
-            (username, hash_password(password), role),
+            """
+            INSERT INTO users
+              (username, password_hash, role, email, email_verified, email_verification_token, employee_title)
+            VALUES (%s, %s, %s, %s, 0, %s, %s)
+            """,
+            (
+                username,
+                hash_password(password),
+                role,
+                email,
+                verification_token,
+                employee_title if role == "employee" else EMPLOYEE_TITLES[0],
+            ),
         )
         db.commit()
         flash(f"{role.title()} account created for {username}.", "success")
@@ -789,7 +1164,7 @@ def manager_staff_accounts():
 
     cur.execute(
         """
-        SELECT username, role
+        SELECT id, username, role, email, email_verified, employee_title
         FROM users
         WHERE role IN ('manager', 'employee')
         ORDER BY role, username
@@ -797,7 +1172,11 @@ def manager_staff_accounts():
     )
     staff_accounts = cur.fetchall()
     cur.close()
-    return render_template("manager_staff_accounts.html", staff_accounts=staff_accounts)
+    return render_template(
+        "manager_staff_accounts.html",
+        staff_accounts=staff_accounts,
+        employee_titles=EMPLOYEE_TITLES,
+    )
 
 
 # -----------------------------
@@ -813,7 +1192,7 @@ def employee_dashboard():
     _ensure_feature_schema(cur)
     cur.execute(
         """
-        SELECT s.id, s.shift_date, s.start_time, s.end_time, s.class_name, u.username AS assigned_to
+        SELECT s.id, s.shift_date, s.start_time, s.end_time, s.class_name, s.program_track, u.username AS assigned_to
         FROM shifts s
         JOIN users u ON u.id = s.employee_user_id
         WHERE s.employee_user_id = %s
@@ -849,7 +1228,8 @@ def employee_dashboard():
             s.shift_date,
             s.start_time,
             s.end_time,
-            s.class_name
+            s.class_name,
+            s.program_track
         FROM requests r
         JOIN users req ON req.id = r.requester_user_id
         JOIN shifts s ON s.id = r.shift_id
@@ -871,8 +1251,9 @@ def employee_dashboard():
             s.id,
             s.shift_date,
             s.class_name,
-            TIME_FORMAT(s.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(s.end_time, '%H:%i') AS end_label
+            TIME_FORMAT(s.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(s.end_time, '%h:%i %p') AS end_label,
+            s.program_track
         FROM shifts s
         WHERE s.employee_user_id = %s
           AND s.shift_date BETWEEN %s AND %s
@@ -881,7 +1262,33 @@ def employee_dashboard():
         (session["user_id"], calendar_start, calendar_end),
     )
     upcoming_shifts = cur.fetchall()
-    calendar_weeks = _build_two_week_calendar(calendar_start, upcoming_shifts)
+    block_map = {}
+    for row in upcoming_shifts:
+        key = (row["shift_date"].isoformat(), row["start_label"], row["end_label"])
+        block = block_map.get(key)
+        if not block:
+            block = {
+                "id": row["id"],
+                "shift_date": row["shift_date"],
+                "start_label": row["start_label"],
+                "end_label": row["end_label"],
+                "employees": [],
+            }
+            block_map[key] = block
+        label = row["employee"]
+        if row.get("employee_title"):
+            label = f"{label} ({row['employee_title']})"
+        block["employees"].append(label)
+    grouped_upcoming_blocks = sorted(
+        block_map.values(),
+        key=lambda b: (b["shift_date"], b["start_label"], b["end_label"]),
+    )
+    for row in upcoming_shifts:
+        row["hours"] = _shift_hours(row.get("start_time"), row.get("end_time"))
+    calendar_weeks = _build_two_week_calendar(calendar_start, grouped_upcoming_blocks)
+    weekly_hours = 0.0
+    if upcoming_shifts:
+        weekly_hours = round(sum(float(row.get("hours") or 0) for row in upcoming_shifts[:7]), 2)
     cur.close()
 
     return render_template(
@@ -890,6 +1297,7 @@ def employee_dashboard():
         my_requests=my_requests,
         incoming_switch_requests=incoming_switch_requests,
         calendar_weeks=calendar_weeks,
+        weekly_hours=weekly_hours,
     )
 
 
@@ -900,9 +1308,10 @@ def employee_schedule():
     # Render a schedule-only view for the logged-in employee.
     db = get_db()
     cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
     cur.execute(
         """
-        SELECT s.shift_date, s.start_time, s.end_time, s.class_name
+        SELECT s.shift_date, s.start_time, s.end_time, s.class_name, s.program_track
         FROM shifts s
         WHERE s.employee_user_id = %s
         ORDER BY s.shift_date, s.start_time
@@ -910,6 +1319,9 @@ def employee_schedule():
         (session["user_id"],),
     )
     my_shifts = cur.fetchall()
+    for shift in my_shifts:
+        shift["start_label"] = _format_time_12h(shift.get("start_time"))
+        shift["end_label"] = _format_time_12h(shift.get("end_time"))
     cur.close()
     return render_template("employee_schedule.html", my_shifts=my_shifts)
 
@@ -935,6 +1347,7 @@ def request_switch():
     # Let an employee request a shift transfer to another employee.
     db = get_db()
     cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
 
     if request.method == "POST":
         shift_id = request.form.get("shift_id")
@@ -966,7 +1379,7 @@ def request_switch():
 
     cur.execute(
         """
-        SELECT id, shift_date, start_time, end_time, class_name
+        SELECT id, shift_date, start_time, end_time, class_name, program_track
         FROM shifts
         WHERE employee_user_id = %s AND shift_date >= %s
         ORDER BY shift_date, start_time
@@ -974,6 +1387,9 @@ def request_switch():
         (session["user_id"], date.today()),
     )
     my_upcoming_shifts = cur.fetchall()
+    for shift in my_upcoming_shifts:
+        shift["start_label"] = _format_time_12h(shift.get("start_time"))
+        shift["end_label"] = _format_time_12h(shift.get("end_time"))
     shift_ids = {row["id"] for row in my_upcoming_shifts}
     prefill_shift_id = request.args.get("shift_id", type=int)
     prefill_shift_date = (request.args.get("shift_date") or "").strip()
@@ -1007,10 +1423,12 @@ def request_callout():
     # Let an employee submit a call-out request for one of their shifts.
     db = get_db()
     cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
 
     if request.method == "POST":
         shift_id = request.form.get("shift_id")
         reason = request.form.get("reason", "").strip()
+        replacement_employee_id = request.form.get("replacement_employee_id", type=int)
 
         cur.execute(
             "SELECT id FROM shifts WHERE id = %s AND employee_user_id = %s",
@@ -1021,13 +1439,26 @@ def request_callout():
             flash("You can only submit call-outs for your own shifts.", "error")
             cur.close()
             return redirect(url_for("request_callout"))
+        if not replacement_employee_id:
+            flash("Please choose a replacement employee.", "error")
+            cur.close()
+            return redirect(url_for("request_callout"))
+        cur.execute(
+            "SELECT id FROM users WHERE id = %s AND role = 'employee'",
+            (replacement_employee_id,),
+        )
+        replacement = cur.fetchone()
+        if not replacement:
+            flash("Replacement employee is invalid.", "error")
+            cur.close()
+            return redirect(url_for("request_callout"))
 
         cur.execute(
             """
-            INSERT INTO requests (request_type, requester_user_id, shift_id, reason, status)
-            VALUES ('callout', %s, %s, %s, 'pending')
+            INSERT INTO requests (request_type, requester_user_id, shift_id, reason, status, replacement_employee_id)
+            VALUES ('callout', %s, %s, %s, 'pending', %s)
             """,
-            (session["user_id"], shift_id, reason),
+            (session["user_id"], shift_id, reason, replacement_employee_id),
         )
         db.commit()
         cur.close()
@@ -1037,7 +1468,7 @@ def request_callout():
 
     cur.execute(
         """
-        SELECT id, shift_date, start_time, end_time, class_name
+        SELECT id, shift_date, start_time, end_time, class_name, program_track
         FROM shifts
         WHERE employee_user_id = %s AND shift_date >= %s
         ORDER BY shift_date, start_time
@@ -1045,6 +1476,9 @@ def request_callout():
         (session["user_id"], date.today()),
     )
     my_upcoming_shifts = cur.fetchall()
+    for shift in my_upcoming_shifts:
+        shift["start_label"] = _format_time_12h(shift.get("start_time"))
+        shift["end_label"] = _format_time_12h(shift.get("end_time"))
     shift_ids = {row["id"] for row in my_upcoming_shifts}
     prefill_shift_id = request.args.get("shift_id", type=int)
     prefill_shift_date = (request.args.get("shift_date") or "").strip()
@@ -1056,12 +1490,18 @@ def request_callout():
                 selected_shift_id = row["id"]
                 break
 
+    cur.execute(
+        "SELECT id, username FROM users WHERE role = 'employee' AND id != %s ORDER BY username",
+        (session["user_id"],),
+    )
+    employees = cur.fetchall()
     cur.close()
 
     return render_template(
         "request_callout.html",
         my_upcoming_shifts=my_upcoming_shifts,
         selected_shift_id=selected_shift_id,
+        employees=employees,
     )
 
 
@@ -1197,11 +1637,9 @@ def staff_class_signup():
             co.class_name,
             co.class_date,
             co.program_track,
-            TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
-            u.username AS instructor_name
+            TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label
         FROM class_offerings co
-        LEFT JOIN users u ON u.id = co.instructor_user_id
         WHERE co.class_date >= %s
         ORDER BY co.class_date, co.start_time, co.class_name
         """,
@@ -1226,13 +1664,11 @@ def staff_class_signup():
             co.class_name,
             co.class_date,
             co.program_track,
-            TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
-            u.username AS instructor_name,
+            TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label,
             scs.signed_up_at
         FROM staff_class_signups scs
         JOIN class_offerings co ON co.id = scs.offering_id
-        LEFT JOIN users u ON u.id = co.instructor_user_id
         WHERE scs.staff_user_id = %s
           AND co.class_date >= %s
         ORDER BY co.class_date, co.start_time
@@ -1386,6 +1822,11 @@ def _staff_progress_screen(page_title):
                 flash("Please choose a valid student and write a note.", "error")
                 cur.close()
                 return redirect(request.path)
+            cur.execute(
+                "SELECT parent_user_id, child_name FROM children WHERE id = %s",
+                (child_id,),
+            )
+            child_parent = cur.fetchone() or {}
 
             _ensure_parent_notes_table(cur)
             cur.execute(
@@ -1395,6 +1836,13 @@ def _staff_progress_screen(page_title):
                 """,
                 (child_id, session["user_id"], parent_note),
             )
+            if child_parent.get("parent_user_id"):
+                _queue_parent_email(
+                    cur,
+                    child_parent["parent_user_id"],
+                    f"New instructor note for {child_parent.get('child_name', 'your student')}",
+                    parent_note,
+                )
             db.commit()
             flash("Parent note sent.", "success")
         else:
@@ -1578,6 +2026,31 @@ def _staff_attendance_screen(page_title):
                 """,
                 (attendance_session_id, child_id),
             )
+        # Queue parent email notices for this attendance record.
+        all_attendance_ids = sorted(enrolled_ids.union(valid_walk_in_ids))
+        if all_attendance_ids:
+            placeholders = ", ".join(["%s"] * len(all_attendance_ids))
+            cur.execute(
+                f"""
+                SELECT id, child_name, parent_user_id
+                FROM children
+                WHERE id IN ({placeholders})
+                """,
+                tuple(all_attendance_ids),
+            )
+            child_map = {int(row["id"]): row for row in cur.fetchall()}
+            for child_id in all_attendance_ids:
+                child_row = child_map.get(child_id)
+                if not child_row:
+                    continue
+                is_present = child_id in present_child_ids
+                status_text = "Present" if is_present else "Absent"
+                _queue_parent_email(
+                    cur,
+                    child_row["parent_user_id"],
+                    f"Attendance update: {child_row['child_name']}",
+                    f"{class_row['class_date']} {class_row['class_name']} - {status_text}",
+                )
 
         if action == "close_and_apply":
             if not present_child_ids:
@@ -1586,11 +2059,14 @@ def _staff_attendance_screen(page_title):
                 cur.close()
                 return redirect(request.path)
 
-            bulk_technique_ids = {
-                int(value)
-                for value in request.form.getlist("bulk_technique_ids")
-                if (value or "").isdigit()
-            }
+            apply_bulk_techniques = request.form.get("apply_bulk_techniques") == "on"
+            bulk_technique_ids = set()
+            if apply_bulk_techniques:
+                bulk_technique_ids = {
+                    int(value)
+                    for value in request.form.getlist("bulk_technique_ids")
+                    if (value or "").isdigit()
+                }
             updates = 0
             for child_id in present_child_ids:
                 per_student_technique_ids = {
@@ -1662,8 +2138,8 @@ def _staff_attendance_screen(page_title):
             co.program_track,
             co.class_name,
             co.class_date,
-            TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
+            TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label,
             (
                 SELECT COUNT(*)
                 FROM class_enrollments ce2
@@ -1705,8 +2181,8 @@ def _staff_attendance_screen(page_title):
         cur.execute(
             """
             SELECT id, program_track, class_name, class_date,
-                   TIME_FORMAT(start_time, '%H:%i') AS start_label,
-                   TIME_FORMAT(end_time, '%H:%i') AS end_label,
+                   TIME_FORMAT(start_time, '%h:%i %p') AS start_label,
+                   TIME_FORMAT(end_time, '%h:%i %p') AS end_label,
                    start_time, end_time
             FROM class_offerings
             WHERE id = %s
@@ -1815,10 +2291,13 @@ def manager_dashboard():
     db = get_db()
     cur = db.cursor(dictionary=True)
     _ensure_feature_schema(cur)
+    _cleanup_schedule_history(cur)
+    db.commit()
 
     cur.execute(
         """
-        SELECT s.id, s.shift_date, s.start_time, s.end_time, s.class_name, u.username AS employee
+        SELECT s.id, s.shift_date, s.start_time, s.end_time, s.class_name, s.program_track,
+               u.username AS employee, u.employee_title
         FROM shifts s
         JOIN users u ON u.id = s.employee_user_id
         ORDER BY s.shift_date, s.start_time
@@ -1848,10 +2327,12 @@ def manager_dashboard():
         """
         SELECT r.id, r.status, r.reason, r.created_at,
                req.username AS requester,
+               repl.username AS replacement_employee,
                s.shift_date, s.start_time, s.end_time, s.class_name
         FROM requests r
         JOIN users req ON req.id = r.requester_user_id
         LEFT JOIN shifts s ON s.id = r.shift_id
+        LEFT JOIN users repl ON repl.id = r.replacement_employee_id
         WHERE r.request_type = 'callout'
           AND r.status = 'pending'
         ORDER BY r.created_at ASC
@@ -1863,10 +2344,12 @@ def manager_dashboard():
         """
         SELECT r.id, r.status, r.reason, r.created_at,
                req.username AS requester,
+               repl.username AS replacement_employee,
                s.shift_date, s.start_time, s.end_time, s.class_name
         FROM requests r
         JOIN users req ON req.id = r.requester_user_id
         LEFT JOIN shifts s ON s.id = r.shift_id
+        LEFT JOIN users repl ON repl.id = r.replacement_employee_id
         WHERE r.request_type = 'callout'
         ORDER BY r.created_at DESC
         LIMIT 25
@@ -1882,9 +2365,11 @@ def manager_dashboard():
             s.id,
             s.shift_date,
             s.class_name,
+            s.program_track,
             u.username AS employee,
-            TIME_FORMAT(s.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(s.end_time, '%H:%i') AS end_label
+            u.employee_title,
+            TIME_FORMAT(s.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(s.end_time, '%h:%i %p') AS end_label
         FROM shifts s
         JOIN users u ON u.id = s.employee_user_id
         WHERE s.shift_date BETWEEN %s AND %s
@@ -1893,6 +2378,39 @@ def manager_dashboard():
         (calendar_start, calendar_end),
     )
     upcoming_shifts = cur.fetchall()
+    cur.execute(
+        """
+        SELECT
+            u.id AS employee_user_id,
+            u.username,
+            u.employee_title,
+            ROUND(SUM(TIMESTAMPDIFF(MINUTE, s.start_time, s.end_time)) / 60.0, 2) AS total_hours
+        FROM users u
+        LEFT JOIN shifts s
+          ON s.employee_user_id = u.id
+         AND YEARWEEK(s.shift_date, 1) = YEARWEEK(%s, 1)
+        WHERE u.role = 'employee'
+        GROUP BY u.id, u.username, u.employee_title
+        ORDER BY u.username
+        """,
+        (date.today(),),
+    )
+    weekly_hours_by_employee = cur.fetchall()
+    cur.execute(
+        """
+        SELECT
+            sh.activity_type,
+            sh.details_text,
+            sh.activity_date,
+            sh.created_at,
+            actor.username AS actor_username
+        FROM schedule_history sh
+        LEFT JOIN users actor ON actor.id = sh.actor_user_id
+        ORDER BY sh.activity_date DESC, sh.created_at DESC
+        LIMIT 60
+        """
+    )
+    schedule_history = cur.fetchall()
     calendar_weeks = _build_two_week_calendar(calendar_start, upcoming_shifts)
     cur.close()
 
@@ -1903,6 +2421,8 @@ def manager_dashboard():
         pending_callout_requests=pending_callout_requests,
         recent_callouts=recent_callouts,
         calendar_weeks=calendar_weeks,
+        weekly_hours_by_employee=weekly_hours_by_employee,
+        schedule_history=schedule_history,
     )
 
 
@@ -1910,12 +2430,13 @@ def manager_dashboard():
 @login_required
 @role_required("manager")
 def manager_schedule():
-    # Calendar editor for next 14 days with shift assignment and creation.
+    # Calendar editor for shared time blocks with multi-employee assignment.
     db = get_db()
     cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
 
     calendar_start = date.today()
-    calendar_end = calendar_start + timedelta(days=13)
+    calendar_end = calendar_start + timedelta(days=55)
 
     def parse_selected_day(raw_value):
         if not raw_value:
@@ -1931,125 +2452,243 @@ def manager_schedule():
     def schedule_redirect(day_value):
         return redirect(url_for("manager_schedule", day=day_value.isoformat()))
 
+    def _normalize_employee_ids(values):
+        return sorted({int(v) for v in values if (v or "").isdigit()})
+
+    def _employee_overlap(employee_id, shift_day, start_db, end_db, excluded_ids=None):
+        excluded_ids = excluded_ids or []
+        if excluded_ids:
+            placeholders = ", ".join(["%s"] * len(excluded_ids))
+            cur.execute(
+                f"""
+                SELECT id
+                FROM shifts
+                WHERE employee_user_id = %s
+                  AND shift_date = %s
+                  AND id NOT IN ({placeholders})
+                  AND NOT (end_time <= %s OR start_time >= %s)
+                LIMIT 1
+                """,
+                (employee_id, shift_day, *excluded_ids, start_db, end_db),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id
+                FROM shifts
+                WHERE employee_user_id = %s
+                  AND shift_date = %s
+                  AND NOT (end_time <= %s OR start_time >= %s)
+                LIMIT 1
+                """,
+                (employee_id, shift_day, start_db, end_db),
+            )
+        return cur.fetchone() is not None
+
     if request.method == "POST":
         action = request.form.get("action", "").strip()
         selected_day = parse_selected_day(request.form.get("selected_day", "").strip())
+        shift_day = selected_day.isoformat()
 
-        if action == "update_shift":
-            # Update an existing shift's assignment and class time details.
-            shift_id = request.form.get("shift_id", type=int)
-            employee_id = request.form.get("employee_user_id", type=int)
+        if action == "create_block":
             start_time = request.form.get("start_time", "").strip()
             end_time = request.form.get("end_time", "").strip()
-            class_name = request.form.get("class_name", "").strip()
-
-            if not (shift_id and employee_id and start_time and end_time and class_name):
-                flash("Employee, class, start time, and end time are required.", "error")
+            employee_ids = _normalize_employee_ids(request.form.getlist("employee_user_ids"))
+            parsed_start = _parse_time_value(start_time)
+            parsed_end = _parse_time_value(end_time)
+            if not (parsed_start and parsed_end and employee_ids):
+                flash("Start, end, and at least one employee are required.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
-            if not _is_valid_time_window(start_time, end_time):
+            start_db = parsed_start.strftime("%H:%M")
+            end_db = parsed_end.strftime("%H:%M")
+            if not _is_valid_time_window(start_db, end_db):
                 flash("End time must be later than start time.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
 
-            cur.execute("SELECT id FROM shifts WHERE id = %s", (shift_id,))
-            shift = cur.fetchone()
-            if not shift:
-                flash("Shift not found.", "error")
-                cur.close()
-                return schedule_redirect(selected_day)
-
-            cur.execute("SELECT id FROM users WHERE id = %s AND role = 'employee'", (employee_id,))
-            employee = cur.fetchone()
-            if not employee:
-                flash("Employee not found.", "error")
-                cur.close()
-                return schedule_redirect(selected_day)
-
+            placeholders = ", ".join(["%s"] * len(employee_ids))
             cur.execute(
-                """
-                SELECT id
-                FROM shifts
-                WHERE employee_user_id = %s
-                  AND shift_date = %s
-                  AND id != %s
-                  AND NOT (end_time <= %s OR start_time >= %s)
-                LIMIT 1
-                """,
-                (employee_id, selected_day, shift_id, start_time, end_time),
+                f"SELECT id FROM users WHERE role = 'employee' AND id IN ({placeholders})",
+                tuple(employee_ids),
             )
-            overlap = cur.fetchone()
-            if overlap:
-                flash("This employee already has an overlapping shift for that time.", "error")
+            valid_employee_ids = {int(row["id"]) for row in cur.fetchall()}
+            if len(valid_employee_ids) != len(employee_ids):
+                flash("One or more selected employees are invalid.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
 
-            cur.execute(
-                """
-                UPDATE shifts
-                SET employee_user_id = %s,
-                    start_time = %s,
-                    end_time = %s,
-                    class_name = %s
-                WHERE id = %s
-                """,
-                (employee_id, start_time, end_time, class_name, shift_id),
-            )
+            conflicts = []
+            for employee_id in employee_ids:
+                if _employee_overlap(employee_id, shift_day, start_db, end_db):
+                    conflicts.append(employee_id)
+            if conflicts:
+                flash("At least one selected employee has an overlapping shift.", "error")
+                cur.close()
+                return schedule_redirect(selected_day)
+
+            first_shift_id = None
+            for employee_id in employee_ids:
+                cur.execute(
+                    """
+                    INSERT INTO shifts (employee_user_id, shift_date, start_time, end_time, class_name, program_track)
+                    VALUES (%s, %s, %s, %s, 'Scheduled Shift', 'kids_martial_arts')
+                    """,
+                    (employee_id, shift_day, start_db, end_db),
+                )
+                if not first_shift_id:
+                    first_shift_id = cur.lastrowid
+
+            if first_shift_id:
+                _log_schedule_activity(
+                    cur,
+                    first_shift_id,
+                    "block_created",
+                    f"Block {shift_day} {start_db}-{end_db} with {len(employee_ids)} employee(s)",
+                    session["user_id"],
+                )
             db.commit()
-            flash("Shift updated.", "success")
+            flash("Time block created.", "success")
             cur.close()
             return schedule_redirect(selected_day)
 
-        elif action == "create":
-            # Create a new shift on the selected calendar day.
-            start_time = request.form.get("start_time", "").strip()
-            end_time = request.form.get("end_time", "").strip()
-            class_name = request.form.get("class_name", "").strip()
-            employee_id = request.form.get("employee_user_id", type=int)
-            shift_date = selected_day.isoformat()
-
-            if not (start_time and end_time and class_name and employee_id):
-                flash("All fields are required to create a shift.", "error")
+        if action in {"update_block", "delete_block"}:
+            original_start_raw = request.form.get("original_start_time", "").strip()
+            original_end_raw = request.form.get("original_end_time", "").strip()
+            original_start = _parse_time_value(original_start_raw)
+            original_end = _parse_time_value(original_end_raw)
+            if not (original_start and original_end):
+                flash("Original block time is invalid.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
-            if not _is_valid_time_window(start_time, end_time):
+            original_start_db = original_start.strftime("%H:%M")
+            original_end_db = original_end.strftime("%H:%M")
+
+            cur.execute(
+                """
+                SELECT id, employee_user_id
+                FROM shifts
+                WHERE shift_date = %s
+                  AND start_time = %s
+                  AND end_time = %s
+                """,
+                (shift_day, original_start_db, original_end_db),
+            )
+            existing_rows = cur.fetchall()
+            if not existing_rows:
+                flash("Time block not found.", "error")
+                cur.close()
+                return schedule_redirect(selected_day)
+            existing_ids = [int(row["id"]) for row in existing_rows]
+            existing_employee_ids = {int(row["employee_user_id"]) for row in existing_rows}
+            first_shift_id = existing_ids[0]
+
+            if action == "delete_block":
+                cur.execute(
+                    """
+                    DELETE FROM shifts
+                    WHERE shift_date = %s
+                      AND start_time = %s
+                      AND end_time = %s
+                    """,
+                    (shift_day, original_start_db, original_end_db),
+                )
+                _log_schedule_activity(
+                    cur,
+                    first_shift_id,
+                    "block_deleted",
+                    f"Deleted block {shift_day} {original_start_db}-{original_end_db}",
+                    session["user_id"],
+                )
+                db.commit()
+                flash("Time block removed.", "success")
+                cur.close()
+                return schedule_redirect(selected_day)
+
+            start_time = request.form.get("start_time", "").strip()
+            end_time = request.form.get("end_time", "").strip()
+            employee_ids = _normalize_employee_ids(request.form.getlist("employee_user_ids"))
+            parsed_start = _parse_time_value(start_time)
+            parsed_end = _parse_time_value(end_time)
+            if not (parsed_start and parsed_end and employee_ids):
+                flash("Start, end, and at least one employee are required.", "error")
+                cur.close()
+                return schedule_redirect(selected_day)
+            start_db = parsed_start.strftime("%H:%M")
+            end_db = parsed_end.strftime("%H:%M")
+            if not _is_valid_time_window(start_db, end_db):
                 flash("End time must be later than start time.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
 
-            cur.execute("SELECT id FROM users WHERE id = %s AND role = 'employee'", (employee_id,))
-            employee = cur.fetchone()
-            if not employee:
-                flash("Employee not found.", "error")
-                cur.close()
-                return schedule_redirect(selected_day)
-
+            placeholders = ", ".join(["%s"] * len(employee_ids))
             cur.execute(
-                """
-                SELECT id
-                FROM shifts
-                WHERE employee_user_id = %s
-                  AND shift_date = %s
-                  AND NOT (end_time <= %s OR start_time >= %s)
-                LIMIT 1
-                """,
-                (employee_id, shift_date, start_time, end_time),
+                f"SELECT id FROM users WHERE role = 'employee' AND id IN ({placeholders})",
+                tuple(employee_ids),
             )
-            overlap = cur.fetchone()
-            if overlap:
-                flash("This employee already has an overlapping shift for that time.", "error")
+            valid_employee_ids = {int(row["id"]) for row in cur.fetchall()}
+            if len(valid_employee_ids) != len(employee_ids):
+                flash("One or more selected employees are invalid.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
 
-            cur.execute(
-                """
-                INSERT INTO shifts (employee_user_id, shift_date, start_time, end_time, class_name)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (employee_id, shift_date, start_time, end_time, class_name),
+            for employee_id in employee_ids:
+                if _employee_overlap(employee_id, shift_day, start_db, end_db, excluded_ids=existing_ids):
+                    flash("At least one selected employee has an overlapping shift.", "error")
+                    cur.close()
+                    return schedule_redirect(selected_day)
+
+            remove_ids = sorted(existing_employee_ids.difference(employee_ids))
+            add_ids = sorted(set(employee_ids).difference(existing_employee_ids))
+            keep_ids = sorted(existing_employee_ids.intersection(employee_ids))
+
+            if remove_ids:
+                placeholders = ", ".join(["%s"] * len(remove_ids))
+                cur.execute(
+                    f"""
+                    DELETE FROM shifts
+                    WHERE shift_date = %s
+                      AND start_time = %s
+                      AND end_time = %s
+                      AND employee_user_id IN ({placeholders})
+                    """,
+                    (shift_day, original_start_db, original_end_db, *remove_ids),
+                )
+
+            if keep_ids:
+                placeholders = ", ".join(["%s"] * len(keep_ids))
+                cur.execute(
+                    f"""
+                    UPDATE shifts
+                    SET start_time = %s,
+                        end_time = %s,
+                        class_name = 'Scheduled Shift'
+                    WHERE shift_date = %s
+                      AND start_time = %s
+                      AND end_time = %s
+                      AND employee_user_id IN ({placeholders})
+                    """,
+                    (start_db, end_db, shift_day, original_start_db, original_end_db, *keep_ids),
+                )
+
+            for employee_id in add_ids:
+                cur.execute(
+                    """
+                    INSERT INTO shifts (employee_user_id, shift_date, start_time, end_time, class_name, program_track)
+                    VALUES (%s, %s, %s, %s, 'Scheduled Shift', 'kids_martial_arts')
+                    """,
+                    (employee_id, shift_day, start_db, end_db),
+                )
+
+            _log_schedule_activity(
+                cur,
+                first_shift_id,
+                "block_updated",
+                f"Updated block {shift_day} {original_start_db}-{original_end_db} to {start_db}-{end_db} with {len(employee_ids)} employee(s)",
+                session["user_id"],
             )
             db.commit()
-            flash("Shift created.", "success")
+            flash("Time block updated.", "success")
             cur.close()
             return schedule_redirect(selected_day)
 
@@ -2060,7 +2699,7 @@ def manager_schedule():
     selected_day = parse_selected_day(request.args.get("day", "").strip())
 
     cur.execute(
-        "SELECT id, username FROM users WHERE role = 'employee' ORDER BY username"
+        "SELECT id, username, employee_title FROM users WHERE role = 'employee' ORDER BY username"
     )
     employees = cur.fetchall()
 
@@ -2072,35 +2711,86 @@ def manager_schedule():
             s.shift_date,
             s.start_time,
             s.end_time,
-            s.class_name,
-            TIME_FORMAT(s.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(s.end_time, '%H:%i') AS end_label,
-            u.username AS employee
+            TIME_FORMAT(s.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(s.end_time, '%h:%i %p') AS end_label,
+            u.username AS employee,
+            u.employee_title
         FROM shifts s
         JOIN users u ON u.id = s.employee_user_id
         WHERE s.shift_date BETWEEN %s AND %s
-        ORDER BY s.shift_date, s.start_time
+        ORDER BY s.shift_date, s.start_time, u.username
         """,
         (calendar_start, calendar_end),
     )
-    shifts = cur.fetchall()
-    cur.close()
+    assignments = cur.fetchall()
 
-    calendar_weeks = _build_two_week_calendar(calendar_start, shifts)
+    block_map = {}
+    for row in assignments:
+        block_key = (
+            row["shift_date"].isoformat(),
+            row["start_time"],
+            row["end_time"],
+        )
+        block = block_map.get(block_key)
+        if not block:
+            block = {
+                "shift_date": row["shift_date"],
+                "start_time": row["start_time"],
+                "end_time": row["end_time"],
+                "start_label": row["start_label"],
+                "end_label": row["end_label"],
+                "start_value": row["start_time"].strftime("%H:%M"),
+                "end_value": row["end_time"].strftime("%H:%M"),
+                "employee_user_ids": [],
+                "employees": [],
+            }
+            block_map[block_key] = block
+        block["employee_user_ids"].append(int(row["employee_user_id"]))
+        label = row["employee"]
+        if row.get("employee_title"):
+            label = f"{label} ({row['employee_title']})"
+        block["employees"].append(label)
+
+    blocks = sorted(
+        block_map.values(),
+        key=lambda b: (b["shift_date"], b["start_time"], b["end_time"]),
+    )
+    calendar_weeks = _build_two_week_calendar(calendar_start, blocks)
     selected_day_key = selected_day.isoformat()
-    selected_day_shifts = []
+    selected_day_blocks = []
     for week in calendar_weeks:
         for day in week:
             day["is_selected"] = day["iso_date"] == selected_day_key
             if day["is_selected"]:
-                selected_day_shifts = day["shifts"]
+                selected_day_blocks = day["shifts"]
+
+    cur.execute(
+        """
+        SELECT
+            u.id AS employee_user_id,
+            u.username,
+            u.employee_title,
+            ROUND(SUM(TIMESTAMPDIFF(MINUTE, s.start_time, s.end_time)) / 60.0, 2) AS total_hours
+        FROM users u
+        LEFT JOIN shifts s
+          ON s.employee_user_id = u.id
+         AND YEARWEEK(s.shift_date, 1) = YEARWEEK(%s, 1)
+        WHERE u.role = 'employee'
+        GROUP BY u.id, u.username, u.employee_title
+        ORDER BY u.username
+        """,
+        (selected_day,),
+    )
+    weekly_hours_by_employee = cur.fetchall()
+    cur.close()
 
     return render_template(
         "manager_schedule.html",
         calendar_weeks=calendar_weeks,
         employees=employees,
         selected_day=selected_day,
-        selected_day_shifts=selected_day_shifts,
+        selected_day_blocks=selected_day_blocks,
+        weekly_hours_by_employee=weekly_hours_by_employee,
     )
 
 
@@ -2135,12 +2825,29 @@ def manager_enroll():
             parent_user_id = request.form.get("parent_user_id", type=int)
             program_track = _normalize_track(request.form.get("program_track", "kids_martial_arts"))
             belt_index = request.form.get("belt_index", type=int) or 0
+            child_age = request.form.get("child_age", type=int) or 0
             guardian_name = request.form.get("guardian_name", "").strip()
             contact_phone = request.form.get("contact_phone", "").strip()
 
             belt_index = max(0, min(belt_index, len(BELT_SEQUENCE) - 1))
-            if not (child_name and parent_user_id and contact_phone):
-                flash("Student name, parent account, and contact phone are required.", "error")
+            if not (child_name and parent_user_id and contact_phone and child_age):
+                flash("Student name, age, parent account, and contact phone are required.", "error")
+                cur.close()
+                return redirect(url_for("manager_enroll"))
+            if child_age < MIN_CHILD_AGE or child_age > MAX_CHILD_AGE:
+                flash(f"Student age must be between {MIN_CHILD_AGE} and {MAX_CHILD_AGE}.", "error")
+                cur.close()
+                return redirect(url_for("manager_enroll"))
+            if program_track == "little_dragons" and child_age != 4:
+                flash("Little Dragons track is only for age 4.", "error")
+                cur.close()
+                return redirect(url_for("manager_enroll"))
+            if program_track == "kids_martial_arts" and child_age > 14:
+                flash("Kids Martial Arts is for ages up to 14.", "error")
+                cur.close()
+                return redirect(url_for("manager_enroll"))
+            if program_track == "adult_martial_arts" and child_age < 15:
+                flash("Teen & Adult Martial Arts starts at age 15.", "error")
                 cur.close()
                 return redirect(url_for("manager_enroll"))
 
@@ -2157,14 +2864,15 @@ def manager_enroll():
             cur.execute(
                 """
                 INSERT INTO children
-                  (child_name, parent_user_id, program_track, belt_index, guardian_name, contact_phone)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                  (child_name, parent_user_id, program_track, belt_index, child_age, guardian_name, contact_phone)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     child_name,
                     parent_user_id,
                     program_track,
                     belt_index,
+                    child_age,
                     guardian_name or None,
                     contact_phone,
                 ),
@@ -2191,7 +2899,7 @@ def manager_enroll():
 
         cur.execute(
             """
-            SELECT id, program_track
+            SELECT id, program_track, min_age, max_age, min_belt_index, max_belt_index
             FROM class_offerings
             WHERE id = %s
             """,
@@ -2204,7 +2912,21 @@ def manager_enroll():
             return redirect(url_for("manager_enroll"))
 
         added = 0
+        skipped = 0
         for child_id in child_ids:
+            cur.execute(
+                """
+                SELECT id, program_track, belt_index, child_age
+                FROM children
+                WHERE id = %s
+                """,
+                (child_id,),
+            )
+            child = cur.fetchone()
+            eligible, _ = _is_child_eligible_for_offering(child or {}, offering)
+            if not eligible:
+                skipped += 1
+                continue
             cur.execute(
                 """
                 INSERT IGNORE INTO class_enrollments (offering_id, child_id, enrolled_by_user_id)
@@ -2215,7 +2937,7 @@ def manager_enroll():
             added += cur.rowcount
 
         db.commit()
-        flash(f"Added {added} student(s) to class roster.", "success")
+        flash(f"Added {added} student(s) to class roster. Skipped {skipped} not eligible.", "success")
         cur.close()
         return redirect(url_for("manager_enroll", offering_id=offering_id))
 
@@ -2227,8 +2949,12 @@ def manager_enroll():
             co.program_track,
             co.class_name,
             co.class_date,
-            TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(co.end_time, '%H:%i') AS end_label
+            co.min_age,
+            co.max_age,
+            co.min_belt_index,
+            co.max_belt_index,
+            TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label
         FROM class_offerings co
         WHERE co.class_date >= %s
         ORDER BY co.class_date, co.start_time
@@ -2243,7 +2969,7 @@ def manager_enroll():
     if selected_offering_id:
         cur.execute(
             """
-            SELECT c.id, c.child_name, c.program_track, c.belt_index
+            SELECT c.id, c.child_name, c.program_track, c.belt_index, c.child_age
             FROM class_enrollments ce
             JOIN children c ON c.id = ce.child_id
             WHERE ce.offering_id = %s
@@ -2258,16 +2984,24 @@ def manager_enroll():
 
     cur.execute(
         """
-        SELECT c.id, c.child_name, c.program_track, c.belt_index, u.username AS parent_username
+        SELECT c.id, c.child_name, c.program_track, c.belt_index, c.child_age, u.username AS parent_username
         FROM children c
         JOIN users u ON u.id = c.parent_user_id
         ORDER BY c.child_name
         """
     )
     all_students = cur.fetchall()
+    selected_offering = next((row for row in offerings if row["id"] == selected_offering_id), None)
     for child in all_students:
         child["program_track"] = _normalize_track(child.get("program_track"))
         child["current_belt"] = _belt_name_for_index(child.get("belt_index"))
+        if selected_offering:
+            eligible, reason = _is_child_eligible_for_offering(child, selected_offering)
+            child["eligible_for_selected"] = eligible
+            child["ineligible_reason"] = reason
+        else:
+            child["eligible_for_selected"] = True
+            child["ineligible_reason"] = ""
 
     enrolled_ids = {child["id"] for child in selected_roster}
     cur.execute(
@@ -2281,8 +3015,8 @@ def manager_enroll():
             co.program_track,
             co.class_name,
             co.class_date,
-            TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
+            TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label,
             COUNT(ce.id) AS enrolled_count
         FROM class_offerings co
         LEFT JOIN class_enrollments ce ON ce.offering_id = co.id
@@ -2325,15 +3059,41 @@ def manager_classes():
         class_date = request.form.get("class_date", "").strip()
         start_time = request.form.get("start_time", "").strip()
         end_time = request.form.get("end_time", "").strip()
+        min_age = request.form.get("min_age", type=int)
+        max_age = request.form.get("max_age", type=int)
+        min_belt_index = request.form.get("min_belt_index", type=int)
+        max_belt_index = request.form.get("max_belt_index", type=int)
         is_recurring_weekly = request.form.get("is_recurring_weekly") == "on"
         recurrence_end_date = request.form.get("recurrence_end_date", "").strip()
+        default_min_age, default_max_age = _default_age_range_for_track(program_track)
+        min_age = min_age if min_age is not None else default_min_age
+        max_age = max_age if max_age is not None else default_max_age
+        min_belt_index = min_belt_index if min_belt_index is not None else 0
+        max_belt_index = max_belt_index if max_belt_index is not None else len(BELT_SEQUENCE) - 1
 
         if not (class_name and class_date and start_time and end_time):
             flash("Class name, date, and time are required.", "error")
             cur.close()
             return redirect(url_for("manager_classes"))
-        if not _is_valid_time_window(start_time, end_time):
+        parsed_start = _parse_time_value(start_time)
+        parsed_end = _parse_time_value(end_time)
+        if not parsed_start or not parsed_end:
+            flash("Please enter valid start and end times (example: 4:30 PM).", "error")
+            cur.close()
+            return redirect(url_for("manager_classes"))
+        start_db = parsed_start.strftime("%H:%M")
+        end_db = parsed_end.strftime("%H:%M")
+        if not _is_valid_time_window(start_db, end_db):
             flash("End time must be later than start time.", "error")
+            cur.close()
+            return redirect(url_for("manager_classes"))
+        if min_age < MIN_CHILD_AGE or max_age > MAX_CHILD_AGE or min_age > max_age:
+            flash("Invalid age range.", "error")
+            cur.close()
+            return redirect(url_for("manager_classes"))
+        max_belt_allowed = len(BELT_SEQUENCE) - 1
+        if min_belt_index < 0 or max_belt_index > max_belt_allowed or min_belt_index > max_belt_index:
+            flash("Invalid belt range.", "error")
             cur.close()
             return redirect(url_for("manager_classes"))
         if is_recurring_weekly and not recurrence_end_date:
@@ -2382,7 +3142,7 @@ def manager_classes():
                   AND end_time = %s
                 LIMIT 1
                 """,
-                (class_name, program_track, day_cursor, start_time, end_time),
+                (class_name, program_track, day_cursor, start_db, end_db),
             )
             exists = cur.fetchone()
             if exists:
@@ -2391,15 +3151,19 @@ def manager_classes():
                 cur.execute(
                     """
                     INSERT INTO class_offerings
-                      (program_track, class_name, class_date, start_time, end_time, instructor_user_id, created_by_user_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                      (program_track, class_name, class_date, start_time, end_time, min_age, max_age, min_belt_index, max_belt_index, instructor_user_id, created_by_user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         program_track,
                         class_name,
                         day_cursor,
-                        start_time,
-                        end_time,
+                        start_db,
+                        end_db,
+                        min_age,
+                        max_age,
+                        min_belt_index,
+                        max_belt_index,
                         None,
                         session["user_id"],
                     ),
@@ -2428,8 +3192,12 @@ def manager_classes():
             co.program_track,
             co.class_name,
             co.class_date,
-            TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(co.end_time, '%H:%i') AS end_label
+            co.min_age,
+            co.max_age,
+            co.min_belt_index,
+            co.max_belt_index,
+            TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label
         FROM class_offerings co
         ORDER BY co.class_date, co.start_time
         """
@@ -2440,6 +3208,7 @@ def manager_classes():
         "manager_classes.html",
         offerings=offerings,
         selected_track=current_track,
+        belt_sequence=BELT_SEQUENCE,
     )
 
 
@@ -2736,7 +3505,7 @@ def process_request(request_id, action):
 
     cur.execute(
         """
-        SELECT id, request_type, shift_id, requested_employee_id, status, switch_target_status
+        SELECT id, request_type, shift_id, requested_employee_id, replacement_employee_id, status, switch_target_status
         FROM requests
         WHERE id = %s
         """,
@@ -2767,14 +3536,61 @@ def process_request(request_id, action):
     if action == "approve":
         if req["request_type"] == "switch" and req["requested_employee_id"]:
             cur.execute(
+                "SELECT employee_user_id FROM shifts WHERE id = %s",
+                (req["shift_id"],),
+            )
+            shift_before = cur.fetchone() or {}
+            cur.execute(
                 "UPDATE shifts SET employee_user_id = %s WHERE id = %s",
                 (req["requested_employee_id"], req["shift_id"]),
             )
+            _log_schedule_activity(
+                cur,
+                req["shift_id"],
+                "switch_approved",
+                f"Shift moved from user {shift_before.get('employee_user_id')} to user {req['requested_employee_id']}",
+                session["user_id"],
+            )
         elif req["request_type"] == "callout":
+            replacement_id = req.get("replacement_employee_id")
+            if replacement_id:
+                cur.execute(
+                    "SELECT employee_user_id FROM shifts WHERE id = %s",
+                    (req["shift_id"],),
+                )
+                shift_before = cur.fetchone() or {}
+                cur.execute(
+                    "UPDATE shifts SET employee_user_id = %s WHERE id = %s",
+                    (replacement_id, req["shift_id"]),
+                )
+                _log_schedule_activity(
+                    cur,
+                    req["shift_id"],
+                    "callout_approved",
+                    f"Shift moved from user {shift_before.get('employee_user_id')} to replacement user {replacement_id}",
+                    session["user_id"],
+                )
+            else:
+                _log_schedule_activity(
+                    cur,
+                    req["shift_id"],
+                    "callout_approved",
+                    "Callout approved without replacement employee",
+                    session["user_id"],
+                )
+        else:
             cur.execute(
-                "UPDATE shifts SET class_name = CONCAT(class_name, ' (CALL-OUT)') WHERE id = %s",
+                "SELECT id FROM shifts WHERE id = %s",
                 (req["shift_id"],),
             )
+    else:
+        _log_schedule_activity(
+            cur,
+            req["shift_id"],
+            f"{req['request_type']}_rejected",
+            f"Request {request_id} rejected",
+            session["user_id"],
+        )
 
     db.commit()
     cur.close()
@@ -2804,8 +3620,8 @@ def attendance_summary(session_id):
             ats.class_date,
             ats.start_time,
             ats.end_time,
-            TIME_FORMAT(ats.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(ats.end_time, '%H:%i') AS end_label,
+            TIME_FORMAT(ats.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(ats.end_time, '%h:%i %p') AS end_label,
             ats.created_at,
             u.username AS staff_username
         FROM attendance_sessions ats
@@ -2912,7 +3728,7 @@ def parent_signup(offering_id, child_id):
 
     cur.execute(
         """
-        SELECT id, class_date, program_track
+        SELECT id, class_date, program_track, min_age, max_age, min_belt_index, max_belt_index
         FROM class_offerings
         WHERE id = %s
         """,
@@ -2929,13 +3745,23 @@ def parent_signup(offering_id, child_id):
         return redirect(url_for("parent_dashboard"))
 
     cur.execute(
-        "SELECT id, program_track FROM children WHERE id = %s AND parent_user_id = %s",
+        """
+        SELECT id, program_track, belt_index, child_age
+        FROM children
+        WHERE id = %s
+          AND parent_user_id = %s
+        """,
         (child_id, session["user_id"]),
     )
     child = cur.fetchone()
     if not child:
         cur.close()
         flash("Student not found for this parent account.", "error")
+        return redirect(url_for("parent_dashboard"))
+    eligible, reason = _is_child_eligible_for_offering(child, offering)
+    if not eligible:
+        cur.close()
+        flash(f"Student not eligible for this class: {reason}.", "error")
         return redirect(url_for("parent_dashboard"))
 
     cur.execute(
@@ -3005,7 +3831,7 @@ def parent_dashboard():
 
     cur.execute(
         """
-        SELECT id, child_name, program_track, belt_index
+        SELECT id, child_name, program_track, belt_index, child_age
         FROM children
         WHERE parent_user_id = %s
         ORDER BY child_name
@@ -3023,9 +3849,10 @@ def parent_dashboard():
         """
         SELECT
             s.shift_date,
-            s.start_time,
-            s.end_time,
-            s.class_name,
+            TIME_FORMAT(s.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(s.end_time, '%h:%i %p') AS end_label,
+            s.class_name AS time_block_label,
+            s.program_track,
             u.username AS employee
         FROM shifts s
         JOIN users u ON u.id = s.employee_user_id
@@ -3040,8 +3867,8 @@ def parent_dashboard():
             s.shift_date,
             s.class_name,
             u.username AS employee,
-            TIME_FORMAT(s.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(s.end_time, '%H:%i') AS end_label
+            TIME_FORMAT(s.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(s.end_time, '%h:%i %p') AS end_label
         FROM shifts s
         JOIN users u ON u.id = s.employee_user_id
         WHERE s.shift_date BETWEEN %s AND %s
@@ -3059,11 +3886,13 @@ def parent_dashboard():
             co.class_name,
             co.class_date,
             YEARWEEK(co.class_date, 1) AS week_key,
-            TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
-            TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
-            u.username AS instructor_name
+            co.min_age,
+            co.max_age,
+            co.min_belt_index,
+            co.max_belt_index,
+            TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
+            TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label
         FROM class_offerings co
-        LEFT JOIN users u ON u.id = co.instructor_user_id
         WHERE co.class_date >= %s
         ORDER BY co.class_date, co.start_time
         """,
@@ -3103,13 +3932,15 @@ def parent_dashboard():
                 co.program_track,
                 co.class_name,
                 co.class_date,
-                TIME_FORMAT(co.start_time, '%H:%i') AS start_label,
-                TIME_FORMAT(co.end_time, '%H:%i') AS end_label,
-                u.username AS instructor_name,
+                co.min_age,
+                co.max_age,
+                co.min_belt_index,
+                co.max_belt_index,
+                TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
+                TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label,
                 ce.created_at AS enrolled_at
             FROM class_enrollments ce
             JOIN class_offerings co ON co.id = ce.offering_id
-            LEFT JOIN users u ON u.id = co.instructor_user_id
             WHERE ce.child_id IN ({placeholders})
             ORDER BY co.class_date DESC, co.start_time DESC
             """,
@@ -3172,6 +4003,10 @@ def parent_dashboard():
             week_count = weekly_counts.get((child_id, class_week_key), 0)
             if week_count >= MAX_CLASSES_PER_WEEK:
                 signup_block_reasons[key] = f"Weekly limit ({MAX_CLASSES_PER_WEEK}) reached"
+                continue
+            eligible, reason = _is_child_eligible_for_offering(child, cls)
+            if not eligible:
+                signup_block_reasons[key] = reason
 
     child_parent_notes = _fetch_parent_notes_rows(cur, child_ids)
     cur.close()
@@ -3186,6 +4021,7 @@ def parent_dashboard():
         signup_block_reasons=signup_block_reasons,
         max_classes_per_week=MAX_CLASSES_PER_WEEK,
         child_parent_notes=child_parent_notes,
+        belt_sequence=BELT_SEQUENCE,
     )
 
 

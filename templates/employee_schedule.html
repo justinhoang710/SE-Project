@@ -4,22 +4,20 @@
   <h2>Schedule for Staff</h2>
   <div class="section-tools">
     <label>Search Shifts
-      <input type="search" placeholder="Date, time, class" data-table-filter="employee-shifts-table" />
+      <input type="search" placeholder="Date, time" data-table-filter="employee-shifts-table" />
     </label>
   </div>
   <div class="table-shell">
     <table id="employee-shifts-table">
-      <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th></tr>
+      <tr><th>Date</th><th>Time</th></tr>
       <tbody>
       {% for s in my_shifts %}
         <tr>
           <td>{{ s.shift_date }}</td>
-          <td>{{ s.start_time }}</td>
-          <td>{{ s.end_time }}</td>
-          <td>{{ s.class_name }}</td>
+          <td>{{ s.start_label }}-{{ s.end_label }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="4">No shifts assigned.</td></tr>
+        <tr><td colspan="2">No shifts assigned.</td></tr>
       {% endfor %}
       </tbody>
     </table>

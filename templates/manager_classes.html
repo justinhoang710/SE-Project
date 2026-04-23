@@ -20,14 +20,36 @@
         <input type="date" name="class_date" required />
       </label>
       <label>Start
-        <input type="time" name="start_time" required />
+        <input type="text" name="start_time" placeholder="4:30 PM" required />
       </label>
       <label>End
-        <input type="time" name="end_time" required />
+        <input type="text" name="end_time" placeholder="6:00 PM" required />
       </label>
       <div class="actions" style="align-self: end;">
         <button type="submit">Add</button>
       </div>
+    </div>
+    <div class="section-tools">
+      <label>Min Age
+        <input type="number" name="min_age" min="4" max="99" />
+      </label>
+      <label>Max Age
+        <input type="number" name="max_age" min="4" max="99" />
+      </label>
+      <label>Min Belt
+        <select name="min_belt_index">
+          {% for belt_name in belt_sequence %}
+            <option value="{{ loop.index0 }}">{{ belt_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Max Belt
+        <select name="max_belt_index">
+          {% for belt_name in belt_sequence %}
+            <option value="{{ loop.index0 }}" {% if loop.last %}selected{% endif %}>{{ belt_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
     </div>
     <div class="section-tools">
       <label class="checkbox">
@@ -50,17 +72,19 @@
   </div>
   <div class="table-shell tall">
     <table id="loaded-offerings-table">
-      <tr><th>Track</th><th>Date</th><th>Time</th><th>Class Name</th></tr>
+      <tr><th>Track</th><th>Date</th><th>Time</th><th>Age Range</th><th>Belt Range</th><th>Class Name</th></tr>
       <tbody>
       {% for cls in offerings %}
         <tr>
           <td>{{ cls.program_track|track_label }}</td>
           <td>{{ cls.class_date }}</td>
           <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
+          <td>{{ cls.min_age }}-{{ cls.max_age }}</td>
+          <td>{{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>
           <td>{{ cls.class_name }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="4">No class offerings yet.</td></tr>
+        <tr><td colspan="6">No class offerings yet.</td></tr>
       {% endfor %}
       </tbody>
     </table>

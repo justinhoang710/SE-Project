@@ -8,7 +8,7 @@
         <option value="">Select shift</option>
         {% for s in my_upcoming_shifts %}
           <option value="{{ s.id }}" {% if selected_shift_id and s.id == selected_shift_id %}selected{% endif %}>
-            {{ s.shift_date }} {{ s.start_time }}-{{ s.end_time }} ({{ s.class_name }})
+            {{ s.shift_date }} {{ s.start_label }}-{{ s.end_label }}
           </option>
         {% endfor %}
       </select>

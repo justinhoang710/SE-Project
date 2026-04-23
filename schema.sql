@@ -4,6 +4,10 @@ USE karate_academy;
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   username VARCHAR(80) NOT NULL UNIQUE,
+  email VARCHAR(255) NULL UNIQUE,
+  email_verified TINYINT(1) NOT NULL DEFAULT 0,
+  email_verification_token VARCHAR(120) NULL,
+  employee_title VARCHAR(40) NOT NULL DEFAULT 'Assistant',
   password_hash VARCHAR(255) NOT NULL,
   role ENUM('manager', 'employee', 'parent') NOT NULL
 );
@@ -14,6 +18,7 @@ CREATE TABLE IF NOT EXISTS children (
   parent_user_id INT NOT NULL,
   program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts',
   belt_index INT NOT NULL DEFAULT 0,
+  child_age INT NOT NULL DEFAULT 14,
   guardian_name VARCHAR(120) NULL,
   contact_phone VARCHAR(40) NULL,
   FOREIGN KEY (parent_user_id) REFERENCES users(id)
@@ -26,6 +31,7 @@ CREATE TABLE IF NOT EXISTS shifts (
   start_time TIME NOT NULL,
   end_time TIME NOT NULL,
   class_name VARCHAR(120) NOT NULL,
+  program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts',
   FOREIGN KEY (employee_user_id) REFERENCES users(id)
 );
 
@@ -35,13 +41,15 @@ CREATE TABLE IF NOT EXISTS requests (
   requester_user_id INT NOT NULL,
   shift_id INT NOT NULL,
   requested_employee_id INT NULL,
+  replacement_employee_id INT NULL,
   reason TEXT NOT NULL,
   status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
   switch_target_status ENUM('pending', 'accepted', 'rejected') NOT NULL DEFAULT 'pending',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (requester_user_id) REFERENCES users(id),
   FOREIGN KEY (shift_id) REFERENCES shifts(id),
-  FOREIGN KEY (requested_employee_id) REFERENCES users(id)
+  FOREIGN KEY (requested_employee_id) REFERENCES users(id),
+  FOREIGN KEY (replacement_employee_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS child_schedule (
@@ -100,6 +108,10 @@ CREATE TABLE IF NOT EXISTS class_offerings (
   class_date DATE NOT NULL,
   start_time TIME NOT NULL,
   end_time TIME NOT NULL,
+  min_age INT NOT NULL DEFAULT 5,
+  max_age INT NOT NULL DEFAULT 14,
+  min_belt_index INT NOT NULL DEFAULT 0,
+  max_belt_index INT NOT NULL DEFAULT 9,
   instructor_user_id INT NULL,
   created_by_user_id INT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -173,6 +185,28 @@ CREATE TABLE IF NOT EXISTS staff_class_signups (
   UNIQUE KEY uq_staff_class_signup (offering_id, staff_user_id),
   FOREIGN KEY (offering_id) REFERENCES class_offerings(id),
   FOREIGN KEY (staff_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS schedule_history (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  shift_id INT NOT NULL,
+  activity_type VARCHAR(40) NOT NULL,
+  details_text TEXT NOT NULL,
+  activity_date DATE NOT NULL,
+  actor_user_id INT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (shift_id) REFERENCES shifts(id),
+  FOREIGN KEY (actor_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS outgoing_emails (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  to_user_id INT NOT NULL,
+  to_email VARCHAR(255) NOT NULL,
+  subject_line VARCHAR(255) NOT NULL,
+  body_text TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (to_user_id) REFERENCES users(id)
 );
 
 CREATE OR REPLACE VIEW kid_belt_students AS

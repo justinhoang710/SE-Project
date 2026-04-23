@@ -8,6 +8,7 @@
 <section class="card">
   <h3>Create Staff Account</h3>
   <form method="post">
+    <input type="hidden" name="action" value="create" />
     <div class="section-tools">
       <label>Account Type
         <select name="role" required>
@@ -18,6 +19,16 @@
       </label>
       <label>Username
         <input type="text" name="username" minlength="3" required />
+      </label>
+      <label>Email
+        <input type="email" name="email" required />
+      </label>
+      <label>Employee Title
+        <select name="employee_title">
+          {% for title in employee_titles %}
+            <option value="{{ title }}">{{ title }}</option>
+          {% endfor %}
+        </select>
       </label>
     </div>
     <div class="section-tools">
@@ -41,15 +52,33 @@
   </div>
   <div class="table-shell">
     <table id="staff-accounts-table">
-      <tr><th>Username</th><th>Role</th></tr>
+      <tr><th>Username</th><th>Email</th><th>Verified</th><th>Role</th><th>Title</th><th>Update</th></tr>
       <tbody>
       {% for row in staff_accounts %}
         <tr>
           <td>{{ row.username }}</td>
+          <td>{{ row.email or '-' }}</td>
+          <td>{{ 'Yes' if row.email_verified else 'No' }}</td>
           <td>{{ row.role }}</td>
+          <td>{{ row.employee_title if row.role == 'employee' else '-' }}</td>
+          <td>
+            {% if row.role == 'employee' %}
+              <form class="inline" method="post">
+                <input type="hidden" name="action" value="update_title" />
+                <input type="hidden" name="staff_user_id" value="{{ row.id }}" />
+                <select name="employee_title" onchange="this.form.submit()">
+                  {% for title in employee_titles %}
+                    <option value="{{ title }}" {% if title == row.employee_title %}selected{% endif %}>{{ title }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            {% else %}
+              -
+            {% endif %}
+          </td>
         </tr>
       {% else %}
-        <tr><td colspan="2">No staff accounts found.</td></tr>
+        <tr><td colspan="6">No staff accounts found.</td></tr>
       {% endfor %}
       </tbody>
     </table>

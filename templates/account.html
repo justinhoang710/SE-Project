@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card narrow">
+  <h2>Account Settings</h2>
+  <p class="hint">Username: {{ account.username }} | Role: {{ account.role }}</p>
+  <p class="hint">Email verification: {{ 'Verified' if account.email_verified else 'Pending' }}</p>
+</section>
+
+<section class="card narrow">
+  <h3>Update Email</h3>
+  <form method="post">
+    <input type="hidden" name="action" value="update_email" />
+    <label>Email
+      <input type="email" name="email" value="{{ account.email or '' }}" required />
+    </label>
+    <button type="submit">Save Email</button>
+  </form>
+</section>
+
+<section class="card narrow">
+  <h3>Update Password</h3>
+  <form method="post">
+    <input type="hidden" name="action" value="update_password" />
+    <label>Current Password
+      <input type="password" name="current_password" required />
+    </label>
+    <label>New Password
+      <input type="password" name="new_password" minlength="6" required />
+    </label>
+    <label>Confirm New Password
+      <input type="password" name="confirm_password" minlength="6" required />
+    </label>
+    <button type="submit">Save Password</button>
+  </form>
+</section>
+{% endblock %}

@@ -53,6 +53,10 @@
 
     <details class="section-collapse">
       <summary>Bulk Techniques For Present Students</summary>
+      <label class="checkbox" style="margin-top: 0.45rem;">
+        <input type="checkbox" name="apply_bulk_techniques" />
+        Apply selected bulk techniques
+      </label>
       <label style="margin-top: 0.45rem;">
         <select name="bulk_technique_ids" multiple size="4" {% if not current_classes %}disabled{% endif %}>
           {% for t in active_techniques %}

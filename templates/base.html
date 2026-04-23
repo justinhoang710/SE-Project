@@ -62,6 +62,7 @@
           {% elif session.get('role') == 'parent' %}
           { label: 'My Child Dashboard', hint: 'Schedule and attendance', href: {{ url_for('parent_dashboard')|tojson }}, endpoints: ['parent_dashboard'] },
           {% endif %}
+          { label: 'Account', hint: 'Email and password', href: {{ url_for('account_settings')|tojson }}, endpoints: ['account_settings'] },
           { label: 'Log Out', hint: 'Sign out securely', href: {{ url_for('logout')|tojson }}, endpoints: ['logout'] }
         ]
       };

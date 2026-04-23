@@ -35,8 +35,8 @@
               {% for shift in day.shifts %}
                 <div class="manager-calendar-event">
                   <div class="manager-calendar-time mono">{{ shift.start_label }}-{{ shift.end_label }}</div>
-                  <div class="manager-calendar-class">{{ shift.class_name }}</div>
-                  <div class="manager-calendar-employee hint">{{ shift.employee }}</div>
+                  <div class="manager-calendar-class">Scheduled Shift</div>
+                  <div class="manager-calendar-employee hint">{{ shift.employees|join(', ') }}</div>
                 </div>
               {% else %}
                 <div class="hint">No shifts</div>
@@ -64,7 +64,7 @@
         <tr>
           <td>{{ r.requester }}</td>
           <td>{{ r.requested_employee or '-' }}</td>
-          <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
+          <td>{{ r.shift_date }} {{ r.start_time|time12 }}-{{ r.end_time|time12 }}</td>
           <td>{{ r.reason }}</td>
           <td>
             <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='approve') }}">
@@ -92,12 +92,13 @@
   </div>
   <div class="table-shell">
     <table id="pending-callout-table">
-      <tr><th>Requester</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
+      <tr><th>Requester</th><th>Replacement</th><th>Shift</th><th>Reason</th><th>Action</th></tr>
       <tbody>
       {% for r in pending_callout_requests %}
         <tr>
           <td>{{ r.requester }}</td>
-          <td>{{ r.shift_date }} {{ r.start_time }}-{{ r.end_time }} ({{ r.class_name }})</td>
+          <td>{{ r.replacement_employee or '-' }}</td>
+          <td>{{ r.shift_date }} {{ r.start_time|time12 }}-{{ r.end_time|time12 }}</td>
           <td>{{ r.reason }}</td>
           <td>
             <form class="inline" method="post" action="{{ url_for('process_request', request_id=r.id, action='approve') }}">
@@ -109,7 +110,50 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="4">No pending call-out requests.</td></tr>
+        <tr><td colspan="5">No pending call-out requests.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h3>Weekly Staff Hours</h3>
+  <div class="table-shell">
+    <table>
+      <tr><th>Employee</th><th>Title</th><th>Total Hours</th></tr>
+      <tbody>
+      {% for row in weekly_hours_by_employee %}
+        <tr>
+          <td>{{ row.username }}</td>
+          <td>{{ row.employee_title }}</td>
+          <td>{{ row.total_hours or 0 }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">No staff hours available.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h3>Schedule Activity History</h3>
+  <p class="hint">History auto-clears for dates before today.</p>
+  <div class="table-shell">
+    <table>
+      <tr><th>Date</th><th>Type</th><th>Details</th><th>Actor</th><th>Logged</th></tr>
+      <tbody>
+      {% for row in schedule_history %}
+        <tr>
+          <td>{{ row.activity_date }}</td>
+          <td>{{ row.activity_type }}</td>
+          <td>{{ row.details_text }}</td>
+          <td>{{ row.actor_username or '-' }}</td>
+          <td>{{ row.created_at }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No recent schedule activity.</td></tr>
       {% endfor %}
       </tbody>
     </table>

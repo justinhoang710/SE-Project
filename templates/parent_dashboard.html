@@ -8,23 +8,21 @@
   <h3>Academy Schedule (Next 2 Weeks)</h3>
   <div class="section-tools">
     <label>Search
-      <input type="search" placeholder="Date, class, instructor" data-table-filter="academy-schedule-table" />
+      <input type="search" placeholder="Date, track, time block" data-table-filter="academy-schedule-table" />
     </label>
   </div>
   <div class="table-shell tall">
     <table id="academy-schedule-table">
-      <tr><th>Date</th><th>Start</th><th>End</th><th>Class</th><th>Instructor</th></tr>
+      <tr><th>Date</th><th>Time</th><th>Staff</th></tr>
       <tbody>
       {% for cls in academy_schedule %}
         <tr>
           <td>{{ cls.shift_date }}</td>
-          <td>{{ cls.start_time }}</td>
-          <td>{{ cls.end_time }}</td>
-          <td>{{ cls.class_name }}</td>
+          <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
           <td>{{ cls.employee }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="5">No classes scheduled.</td></tr>
+        <tr><td colspan="3">No classes scheduled.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -40,7 +38,7 @@
   </div>
   <div class="table-shell tall">
     <table id="parent-signup-table">
-      <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Instructor</th><th>Signup</th></tr>
+      <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Eligibility</th><th>Signup</th></tr>
       <tbody>
       {% for cls in signup_classes %}
         <tr>
@@ -48,7 +46,7 @@
           <td>{{ cls.class_date }}</td>
           <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
           <td>{{ cls.class_name }}</td>
-          <td>{{ cls.instructor_name or '-' }}</td>
+          <td>Age {{ cls.min_age }}-{{ cls.max_age }} | {{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>
           <td>
             {% for child in children %}
               {% set signup_key = child.id|string ~ ':' ~ cls.id|string %}
@@ -80,7 +78,7 @@
     <summary>Signed-Up Classes And Attendance</summary>
     <div class="table-shell" style="margin-top: 0.5rem;">
       <table>
-        <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Instructor</th><th>Enrolled On</th><th>Attendance</th></tr>
+        <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Enrolled On</th><th>Attendance</th></tr>
         <tbody>
         {% for row in signed_up_classes_by_child[child.id] %}
           <tr>
@@ -88,12 +86,11 @@
             <td>{{ row.class_date }}</td>
             <td>{{ row.start_label }}-{{ row.end_label }}</td>
             <td>{{ row.class_name }}</td>
-            <td>{{ row.instructor_name or '-' }}</td>
             <td>{{ row.enrolled_at }}</td>
             <td>{{ row.attendance_status }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="7">No class signups yet for this student.</td></tr>
+          <tr><td colspan="6">No class signups yet for this student.</td></tr>
         {% endfor %}
         </tbody>
       </table>
