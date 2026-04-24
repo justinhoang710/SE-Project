@@ -1,11 +1,18 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="card">
-  <h2>Parent Dashboard</h2>
-  <p class="hint">Academy class schedule and instructor notes.</p>
+<section class="card parent-overview">
+  <div>
+    <h2>Parent Dashboard</h2>
+    <p class="hint">Schedule, class signup, and instructor notes.</p>
+  </div>
+  <div class="parent-page-actions" aria-label="Parent dashboard sections">
+    <a class="button secondary" href="#academy-schedule">Schedule</a>
+    <a class="button" href="#class-signup">Sign Up</a>
+    <a class="button secondary" href="#instructor-notes">Notes</a>
+  </div>
 </section>
 
-<section class="card">
+<section id="academy-schedule" class="card">
   <h3>Academy Schedule (Next 2 Weeks)</h3>
   <div class="section-tools">
     <label>Search
@@ -31,7 +38,53 @@
   </div>
 </section>
 
-<section class="card">
+<section id="class-signup" class="card">
+  <div class="section-heading-row">
+    <div>
+      <h3>Class Signup</h3>
+      <p class="hint">Weekly limit per child: {{ max_classes_per_week }}</p>
+    </div>
+    <a class="button secondary" href="{{ url_for('parent_children_dashboard') }}">View signed-up classes</a>
+  </div>
+  <div class="section-tools">
+    <label>Search Offerings
+      <input type="search" placeholder="Track, class, date" data-table-filter="parent-signup-table" />
+    </label>
+  </div>
+  <div class="table-shell tall">
+    <table id="parent-signup-table">
+      <tr><th>Class</th><th>Date</th><th>Time</th><th>Track</th><th>Eligible Belts</th><th>Sign Up</th></tr>
+      <tbody>
+      {% for cls in signup_classes %}
+        <tr>
+          <td>{{ cls.class_name }}</td>
+          <td>{{ cls.class_date }}</td>
+          <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
+          <td>{{ cls.program_track|track_label }}</td>
+          <td>{{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>
+          <td class="signup-cell">
+            {% for child in children %}
+              {% set signup_key = child.id|string ~ ':' ~ cls.id|string %}
+              {% set block_reason = signup_block_reasons.get(signup_key) %}
+              <form class="inline signup-form" method="post" action="{{ url_for('parent_signup', offering_id=cls.id, child_id=child.id) }}">
+                {% if block_reason %}
+                  <button class="secondary" type="submit" disabled>{{ child.child_name }}: {{ block_reason }}</button>
+                {% else %}
+                  <button type="submit">{{ child.child_name }}</button>
+                {% endif %}
+              </form>
+            {% endfor %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No class offerings loaded yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="instructor-notes" class="card">
   <h3>Instructor Notes</h3>
   <div class="section-tools">
     <label>Search

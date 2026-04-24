@@ -304,17 +304,6 @@ td[colspan] { text-align: center; color: var(--text-muted); }
   margin-top: 0.06rem;
 }
 
-.child-dashboard-scroll {
-  display: flex;
-  gap: 0.7rem;
-  overflow-x: auto;
-  padding-bottom: 0.35rem;
-}
-
-.child-dashboard-card {
-  flex: 0 0 min(560px, 92vw);
-}
-
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -448,4 +437,75 @@ body.role-parent textarea {
 body.role-parent button,
 body.role-parent .button {
   padding: 0.52rem 0.82rem;
+}
+
+.parent-overview,
+.section-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.parent-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.signup-cell {
+  min-width: 260px;
+}
+
+.signup-form {
+  margin-right: 0.36rem;
+  margin-bottom: 0.36rem;
+}
+
+.signup-form button {
+  min-width: 118px;
+  justify-content: center;
+}
+
+.child-dashboard-list {
+  display: flex;
+  gap: 0.7rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+  scroll-snap-type: x proximity;
+}
+
+.child-dashboard-card {
+  flex: 0 0 min(560px, 92vw);
+  scroll-snap-align: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 0.68rem;
+}
+
+.child-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.child-class-table {
+  margin-top: 0.4rem;
+}
+
+@media (max-width: 700px) {
+  .parent-overview,
+  .section-heading-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .parent-page-actions,
+  .parent-page-actions .button,
+  .section-heading-row .button {
+    width: 100%;
+  }
 }

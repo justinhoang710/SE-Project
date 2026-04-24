@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=20260421c" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=20260424a" />
   </head>
   <body class="theme-shell role-{{ session.get('role') or 'guest' }}">
     {% set logged_in = session.get('username') %}
@@ -60,14 +60,14 @@
           { label: 'Staff Accounts', hint: 'Create manager/employee logins', href: {{ url_for('manager_staff_accounts')|tojson }}, endpoints: ['manager_staff_accounts'] },
           { label: 'Techniques', hint: 'Edit technique list', href: {{ url_for('techniques')|tojson }}, endpoints: ['techniques'] },
           {% elif session.get('role') == 'parent' %}
-          { label: 'My Child Dashboard', hint: 'Schedules and signups', href: {{ url_for('parent_children_dashboard')|tojson }}, endpoints: ['parent_children_dashboard'] },
+          { label: 'My Kids Classes', hint: 'Signed-up classes', href: {{ url_for('parent_children_dashboard')|tojson }}, endpoints: ['parent_children_dashboard'] },
           {% endif %}
           { label: 'Account', hint: 'Email and password', href: {{ url_for('account_settings')|tojson }}, endpoints: ['account_settings'] },
           { label: 'Log Out', hint: 'Sign out securely', href: {{ url_for('logout')|tojson }}, endpoints: ['logout'] }
         ]
       };
     </script>
-    <script defer src="{{ url_for('static', filename='app_shell.js') }}?v=20260421c"></script>
+    <script defer src="{{ url_for('static', filename='app_shell.js') }}?v=20260424a"></script>
     <script>
       (() => {
         const wireTableFilters = () => {

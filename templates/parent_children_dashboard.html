@@ -1,59 +1,25 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card">
-  <h2>My Child Dashboard</h2>
-  <p class="hint">Manage class signup and view each child's schedule.</p>
-</section>
-
-<section class="card">
-  <h3>Class Signup</h3>
-  <p class="hint">Weekly limit per child: {{ max_classes_per_week }}</p>
-  <div class="section-tools">
-    <label>Search Offerings
-      <input type="search" placeholder="Track, class, date" data-table-filter="parent-signup-table" />
-    </label>
-  </div>
-  <div class="table-shell tall">
-    <table id="parent-signup-table">
-      <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Eligibility</th><th>Signup</th></tr>
-      <tbody>
-      {% for cls in signup_classes %}
-        <tr>
-          <td>{{ cls.program_track|track_label }}</td>
-          <td>{{ cls.class_date }}</td>
-          <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
-          <td>{{ cls.class_name }}</td>
-          <td>Track must match | {{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>
-          <td>
-            {% for child in children %}
-              {% set signup_key = child.id|string ~ ':' ~ cls.id|string %}
-              {% set block_reason = signup_block_reasons.get(signup_key) %}
-              <form class="inline" method="post" action="{{ url_for('parent_signup', offering_id=cls.id, child_id=child.id) }}">
-                {% if block_reason %}
-                  <button type="submit" disabled>{{ child.child_name }}: {{ block_reason }}</button>
-                {% else %}
-                  <button type="submit">Sign Up {{ child.child_name }}</button>
-                {% endif %}
-              </form>
-            {% endfor %}
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="6">No class offerings loaded yet.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+  <div class="section-heading-row">
+    <div>
+      <h2>My Kids Classes</h2>
+      <p class="hint">Classes your kids are currently signed up for.</p>
+    </div>
+    <a class="button" href="{{ url_for('parent_dashboard') }}#class-signup">Sign up for classes</a>
   </div>
 </section>
 
 <section class="card">
-  <h3>Child Schedules</h3>
-  <div class="child-dashboard-scroll">
+  <h3>Signed-Up Classes</h3>
+  <div class="child-dashboard-list">
     {% for child in children %}
-      <article class="card child-dashboard-card">
-        <h4>{{ child.child_name }}</h4>
-        <p class="hint">Track: {{ child.program_track|track_label }} | Belt: {{ child.current_belt }}</p>
-        <div class="table-shell" style="margin-top: 0.4rem;">
+      <article class="child-dashboard-card">
+        <div class="child-card-header">
+          <h4>{{ child.child_name }}</h4>
+          <p class="hint">Track: {{ child.program_track|track_label }} | Belt: {{ child.current_belt }}</p>
+        </div>
+        <div class="table-shell child-class-table">
           <table>
             <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Attendance</th></tr>
             <tbody>
@@ -73,7 +39,7 @@
         </div>
       </article>
     {% else %}
-      <article class="card child-dashboard-card">
+      <article class="child-dashboard-card">
         <p class="hint">No children found for this parent account.</p>
       </article>
     {% endfor %}

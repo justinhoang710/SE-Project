@@ -968,7 +968,7 @@ def dashboard():
     if role == "employee":
         return redirect(url_for("employee_dashboard"))
     if role == "parent":
-        return redirect(url_for("parent_dashboard"))
+        return redirect(url_for("parent_dashboard", _anchor="class-signup"))
 
     flash("Unknown role.", "error")
     return redirect(url_for("logout"))
@@ -3778,11 +3778,11 @@ def parent_signup(offering_id, child_id):
     if not offering:
         cur.close()
         flash("Class offering not found.", "error")
-        return redirect(url_for("parent_children_dashboard"))
+        return redirect(url_for("parent_dashboard", _anchor="class-signup"))
     if offering["class_date"] < date.today():
         cur.close()
         flash("Cannot sign up for a class that already happened.", "error")
-        return redirect(url_for("parent_children_dashboard"))
+        return redirect(url_for("parent_dashboard", _anchor="class-signup"))
 
     cur.execute(
         """
@@ -3797,12 +3797,12 @@ def parent_signup(offering_id, child_id):
     if not child:
         cur.close()
         flash("Student not found for this parent account.", "error")
-        return redirect(url_for("parent_children_dashboard"))
+        return redirect(url_for("parent_dashboard", _anchor="class-signup"))
     eligible, reason = _is_child_eligible_for_offering(child, offering)
     if not eligible:
         cur.close()
         flash(f"Student not eligible for this class: {reason}.", "error")
-        return redirect(url_for("parent_children_dashboard"))
+        return redirect(url_for("parent_dashboard", _anchor="class-signup"))
 
     cur.execute(
         """
@@ -3818,7 +3818,7 @@ def parent_signup(offering_id, child_id):
     if existing_enrollment:
         cur.close()
         flash("Student is already enrolled in this class.", "info")
-        return redirect(url_for("parent_children_dashboard"))
+        return redirect(url_for("parent_dashboard", _anchor="class-signup"))
 
     cur.execute(
         """
@@ -3837,7 +3837,7 @@ def parent_signup(offering_id, child_id):
             f"Weekly limit reached: a student can only sign up for {MAX_CLASSES_PER_WEEK} classes.",
             "error",
         )
-        return redirect(url_for("parent_children_dashboard"))
+        return redirect(url_for("parent_dashboard", _anchor="class-signup"))
 
     try:
         cur.execute(
@@ -3857,7 +3857,7 @@ def parent_signup(offering_id, child_id):
             flash(f"Class signup failed: {exc}", "error")
     finally:
         cur.close()
-    return redirect(url_for("parent_children_dashboard"))
+    return redirect(url_for("parent_dashboard", _anchor="class-signup"))
 
 
 def _build_parent_children_payload(cur, parent_user_id):
@@ -4018,10 +4018,11 @@ def _build_parent_children_payload(cur, parent_user_id):
 @login_required
 @role_required("parent")
 def parent_dashboard():
-    # Parent dashboard: academy schedule + instructor notes.
+    # Parent dashboard: academy schedule, class signup, and instructor notes.
     db = get_db()
     cur = db.cursor(dictionary=True)
     _ensure_feature_schema(cur)
+    payload = _build_parent_children_payload(cur, session["user_id"])
 
     calendar_start = date.today()
     calendar_end = calendar_start + timedelta(days=13)
@@ -4069,6 +4070,11 @@ def parent_dashboard():
     return render_template(
         "parent_dashboard.html",
         academy_schedule=academy_schedule,
+        children=payload["children"],
+        signup_classes=payload["signup_classes"],
+        signup_block_reasons=payload["signup_block_reasons"],
+        max_classes_per_week=MAX_CLASSES_PER_WEEK,
+        belt_sequence=BELT_SEQUENCE,
         notes_feed=notes_feed,
     )
 
@@ -4077,7 +4083,7 @@ def parent_dashboard():
 @login_required
 @role_required("parent")
 def parent_children_dashboard():
-    # Child dashboard: class signup + each child's schedule.
+    # Child dashboard: each child's signed-up classes.
     db = get_db()
     cur = db.cursor(dictionary=True)
     _ensure_feature_schema(cur)
@@ -4086,12 +4092,7 @@ def parent_children_dashboard():
     return render_template(
         "parent_children_dashboard.html",
         children=payload["children"],
-        signup_classes=payload["signup_classes"],
         signed_up_classes_by_child=payload["signed_up_classes_by_child"],
-        enrolled_lookup=payload["enrolled_lookup"],
-        signup_block_reasons=payload["signup_block_reasons"],
-        max_classes_per_week=MAX_CLASSES_PER_WEEK,
-        belt_sequence=BELT_SEQUENCE,
     )
 
 
