@@ -51,20 +51,24 @@
       </label>
     </div>
 
-    <details class="section-collapse">
-      <summary>Bulk Techniques For Present Students</summary>
-      <label class="checkbox" style="margin-top: 0.45rem;">
-        <input type="checkbox" name="apply_bulk_techniques" />
-        Apply selected bulk techniques
-      </label>
-      <label style="margin-top: 0.45rem;">
-        <select name="bulk_technique_ids" multiple size="4" {% if not current_classes %}disabled{% endif %}>
+    <div class="section-tools">
+      <label>Technique For All Present
+        <select name="bulk_technique_id" {% if not current_classes %}disabled{% endif %}>
+          <option value="">Select technique</option>
           {% for t in active_techniques %}
             <option value="{{ t.id }}">{{ t.technique_name }} ({{ t.belt_name }})</option>
           {% endfor %}
         </select>
       </label>
-    </details>
+
+      <label>+
+        <select name="bulk_learned_increment" {% if not current_classes %}disabled{% endif %}>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </label>
+    </div>
 
     <div class="table-shell tall">
       <table id="attendance-roster">

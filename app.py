@@ -2165,14 +2165,11 @@ def _staff_attendance_screen(page_title):
                 cur.close()
                 return redirect(request.path)
 
-            apply_bulk_techniques = request.form.get("apply_bulk_techniques") == "on"
             bulk_technique_ids = set()
-            if apply_bulk_techniques:
-                bulk_technique_ids = {
-                    int(value)
-                    for value in request.form.getlist("bulk_technique_ids")
-                    if (value or "").isdigit()
-                }
+            bulk_technique_id = request.form.get("bulk_technique_id", type=int)
+            if bulk_technique_id:
+                bulk_technique_ids.add(bulk_technique_id)
+            bulk_learned_increment = request.form.get("bulk_learned_increment", type=int) or 1
             updates = 0
             for child_id in present_child_ids:
                 per_student_technique_ids = {
@@ -2181,11 +2178,12 @@ def _staff_attendance_screen(page_title):
                     if (value or "").isdigit()
                 }
                 technique_ids = sorted(per_student_technique_ids.union(bulk_technique_ids))
-                learned_increment = request.form.get(
-                    f"learned_increment_{child_id}",
-                    type=int,
-                ) or 1
                 for technique_id in technique_ids:
+                    learned_increment = (
+                        request.form.get(f"learned_increment_{child_id}", type=int) or 1
+                    )
+                    if technique_id in bulk_technique_ids:
+                        learned_increment = bulk_learned_increment
                     if _apply_learning_entry(
                         cur,
                         child_id,
@@ -2210,7 +2208,7 @@ def _staff_attendance_screen(page_title):
                         )
                         updates += 1
             if updates == 0:
-                flash("No per-student techniques were selected to apply.", "error")
+                flash("No techniques were selected to apply.", "error")
                 db.rollback()
                 cur.close()
                 return redirect(url_for(attendance_endpoint, class_ref=class_ref))
