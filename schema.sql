@@ -37,11 +37,12 @@ CREATE TABLE IF NOT EXISTS shifts (
 
 CREATE TABLE IF NOT EXISTS requests (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  request_type ENUM('switch', 'callout') NOT NULL,
+  request_type ENUM('switch', 'callout', 'time_off') NOT NULL,
   requester_user_id INT NOT NULL,
-  shift_id INT NOT NULL,
+  shift_id INT NULL,
   requested_employee_id INT NULL,
   replacement_employee_id INT NULL,
+  request_date DATE NULL,
   reason TEXT NOT NULL,
   status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
   switch_target_status ENUM('pending', 'accepted', 'rejected') NOT NULL DEFAULT 'pending',

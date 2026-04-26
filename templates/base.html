@@ -48,7 +48,7 @@
           { label: 'Progress', hint: 'Track student growth', href: {{ url_for('employee_progress')|tojson }}, endpoints: ['employee_progress'] },
           { label: 'Weekly Connections', hint: 'Staff weekly board', href: {{ url_for('staff_connections')|tojson }}, endpoints: ['staff_connections'] },
           { label: 'Shift Switch', hint: 'Request schedule swap', href: {{ url_for('request_switch')|tojson }}, endpoints: ['request_switch'] },
-          { label: 'Call-Out', hint: 'Submit absence', href: {{ url_for('request_callout')|tojson }}, endpoints: ['request_callout'] },
+          { label: 'Request Off', hint: 'Submit absence date', href: {{ url_for('request_callout')|tojson }}, endpoints: ['request_callout'] },
           {% elif session.get('role') == 'manager' %}
           { label: 'Schedule Builder', hint: 'Plan classes', href: {{ url_for('manager_schedule')|tojson }}, endpoints: ['manager_schedule'] },
           { label: 'Class Offerings', hint: 'Open classes for signup', href: {{ url_for('manager_classes')|tojson }}, endpoints: ['manager_classes'] },

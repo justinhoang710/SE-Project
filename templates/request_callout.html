@@ -1,23 +1,19 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="card narrow">
-  <h2>Submit Call-Out</h2>
+  <h2>Request Off</h2>
   <form method="post">
-    <label>My Shift
-      <select name="shift_id" required>
-        <option value="">Select shift</option>
+    <label>Date Requested Off
+      <input type="date" name="request_date" value="{{ selected_request_date.isoformat() }}" required />
+    </label>
+
+    <label>Related Shift
+      <select name="shift_id">
+        <option value="">No specific shift</option>
         {% for s in my_upcoming_shifts %}
           <option value="{{ s.id }}" {% if selected_shift_id and s.id == selected_shift_id %}selected{% endif %}>
             {{ s.shift_date }} {{ s.start_label }}-{{ s.end_label }}
           </option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Replacement Employee
-      <select name="replacement_employee_id" required>
-        <option value="">Select replacement</option>
-        {% for e in employees %}
-          <option value="{{ e.id }}">{{ e.username }}</option>
         {% endfor %}
       </select>
     </label>
@@ -26,10 +22,10 @@
       <textarea name="reason" rows="4" required></textarea>
     </label>
 
-    <button type="submit">Submit Call-Out Request</button>
+    <button type="submit">Submit Request-Off</button>
   </form>
   {% if not my_upcoming_shifts %}
-    <p class="hint" style="margin-top: 0.65rem;">No upcoming shifts available.</p>
+    <p class="hint" style="margin-top: 0.65rem;">No upcoming shifts are assigned, but you can still request off for the selected date.</p>
   {% endif %}
 </section>
 {% endblock %}

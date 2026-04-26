@@ -7,7 +7,7 @@
     <a class="student-tile" href="{{ url_for('employee_progress') }}"><strong>Student Progress</strong></a>
     <a class="student-tile" href="{{ url_for('staff_class_signup') }}"><strong>Class Signup</strong></a>
     <a class="student-tile" href="{{ url_for('request_switch') }}"><strong>Request Shift Switch</strong></a>
-    <a class="student-tile" href="{{ url_for('request_callout') }}"><strong>Submit Call-Out</strong></a>
+    <a class="student-tile" href="{{ url_for('request_callout') }}"><strong>Request Off</strong></a>
     <a class="student-tile" href="{{ url_for('staff_connections') }}"><strong>Weekly Connections</strong></a>
     <a class="student-tile" href="{{ url_for('account_settings') }}"><strong>Account Settings</strong></a>
   </div>
@@ -33,7 +33,7 @@
               <td class="mono">{{ shift.start_label }}-{{ shift.end_label }}</td>
               <td>
                 <a class="button secondary" href="{{ url_for('request_switch', shift_id=shift.id, shift_date=day.iso_date) }}">Switch</a>
-                <a class="button danger" href="{{ url_for('request_callout', shift_id=shift.id, shift_date=day.iso_date) }}">Call-Out</a>
+                <a class="button danger" href="{{ url_for('request_callout', shift_id=shift.id, shift_date=day.iso_date) }}">Request Off</a>
               </td>
             </tr>
           {% endfor %}
@@ -95,6 +95,8 @@
           <td>
             {% if r.shift_date %}
               {{ r.shift_date }} {{ r.start_time|time12 }}-{{ r.end_time|time12 }}
+            {% elif r.request_date %}
+              {{ r.request_date }}
             {% else %}
               N/A
             {% endif %}

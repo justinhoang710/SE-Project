@@ -2343,7 +2343,7 @@ def _staff_attendance_screen(page_title):
 @login_required
 @role_required("manager")
 def manager_dashboard():
-    # Show all shifts and manager review queues for shift changes and call-outs.
+    # Show all shifts and manager review queues for shift changes and time-off.
     db = get_db()
     cur = db.cursor(dictionary=True)
     _ensure_feature_schema(cur)
@@ -2384,34 +2384,36 @@ def manager_dashboard():
         SELECT r.id, r.status, r.reason, r.created_at,
                req.username AS requester,
                repl.username AS replacement_employee,
+               r.request_type, r.request_date,
                s.shift_date, s.start_time, s.end_time, s.class_name
         FROM requests r
         JOIN users req ON req.id = r.requester_user_id
         LEFT JOIN shifts s ON s.id = r.shift_id
         LEFT JOIN users repl ON repl.id = r.replacement_employee_id
-        WHERE r.request_type = 'callout'
+        WHERE r.request_type IN ('callout', 'time_off')
           AND r.status = 'pending'
-        ORDER BY r.created_at ASC
+        ORDER BY COALESCE(r.request_date, s.shift_date), r.created_at ASC
         """
     )
-    pending_callout_requests = cur.fetchall()
+    pending_time_off_requests = cur.fetchall()
 
     cur.execute(
         """
         SELECT r.id, r.status, r.reason, r.created_at,
                req.username AS requester,
                repl.username AS replacement_employee,
+               r.request_type, r.request_date,
                s.shift_date, s.start_time, s.end_time, s.class_name
         FROM requests r
         JOIN users req ON req.id = r.requester_user_id
         LEFT JOIN shifts s ON s.id = r.shift_id
         LEFT JOIN users repl ON repl.id = r.replacement_employee_id
-        WHERE r.request_type = 'callout'
+        WHERE r.request_type IN ('callout', 'time_off')
         ORDER BY r.created_at DESC
         LIMIT 25
         """
     )
-    recent_callouts = cur.fetchall()
+    recent_time_off_requests = cur.fetchall()
 
     calendar_start = date.today()
     calendar_end = calendar_start + timedelta(days=13)
@@ -2494,8 +2496,8 @@ def manager_dashboard():
         "manager_dashboard.html",
         all_shifts=all_shifts,
         pending_switch_requests=pending_switch_requests,
-        pending_callout_requests=pending_callout_requests,
-        recent_callouts=recent_callouts,
+        pending_time_off_requests=pending_time_off_requests,
+        recent_time_off_requests=recent_time_off_requests,
         calendar_weeks=calendar_weeks,
         weekly_hours_by_employee=weekly_hours_by_employee,
         schedule_history=schedule_history,
@@ -3559,7 +3561,7 @@ def delete_progress(progress_id):
 @login_required
 @role_required("manager")
 def process_request(request_id, action):
-    # Approve/reject switch and call-out requests, applying shift changes on approval.
+    # Approve/reject switch, legacy call-out, and request-off submissions.
     if action not in {"approve", "reject"}:
         flash("Invalid action.", "error")
         return redirect(url_for("manager_dashboard"))
@@ -3570,7 +3572,8 @@ def process_request(request_id, action):
 
     cur.execute(
         """
-        SELECT id, request_type, shift_id, requested_employee_id, replacement_employee_id, status, switch_target_status
+        SELECT id, request_type, shift_id, requested_employee_id, replacement_employee_id,
+               request_date, status, switch_target_status
         FROM requests
         WHERE id = %s
         """,
@@ -3643,19 +3646,22 @@ def process_request(request_id, action):
                     "Callout approved without replacement employee",
                     session["user_id"],
                 )
+        elif req["request_type"] == "time_off":
+            pass
         else:
             cur.execute(
                 "SELECT id FROM shifts WHERE id = %s",
                 (req["shift_id"],),
             )
     else:
-        _log_schedule_activity(
-            cur,
-            req["shift_id"],
-            f"{req['request_type']}_rejected",
-            f"Request {request_id} rejected",
-            session["user_id"],
-        )
+        if req.get("shift_id"):
+            _log_schedule_activity(
+                cur,
+                req["shift_id"],
+                f"{req['request_type']}_rejected",
+                f"Request {request_id} rejected",
+                session["user_id"],
+            )
 
     db.commit()
     cur.close()
