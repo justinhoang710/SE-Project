@@ -122,6 +122,9 @@ def _ensure_feature_schema(cur):
         "ALTER TABLE children ADD COLUMN contact_phone VARCHAR(40) NULL",
         "ALTER TABLE requests ADD COLUMN switch_target_status ENUM('pending','accepted','rejected') NOT NULL DEFAULT 'pending'",
         "ALTER TABLE requests ADD COLUMN replacement_employee_id INT NULL",
+        "ALTER TABLE requests ADD COLUMN request_date DATE NULL",
+        "ALTER TABLE requests MODIFY COLUMN request_type ENUM('switch', 'callout', 'time_off') NOT NULL",
+        "ALTER TABLE requests MODIFY COLUMN shift_id INT NULL",
         "ALTER TABLE requests ADD CONSTRAINT fk_requests_replacement_employee FOREIGN KEY (replacement_employee_id) REFERENCES users(id)",
         "ALTER TABLE class_offerings ADD COLUMN program_track ENUM('little_dragons', 'kids_martial_arts', 'teen_martial_arts', 'adult_martial_arts') NOT NULL DEFAULT 'kids_martial_arts'",
         "ALTER TABLE class_offerings ADD COLUMN min_age INT NOT NULL DEFAULT 5",
@@ -590,6 +593,13 @@ def _format_date_label(value):
     if isinstance(value, date):
         return value.strftime("%Y-%m-%d")
     return str(value or "")
+
+
+def _parse_date_value(value):
+    try:
+        return datetime.strptime((value or "").strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _shift_hours(start_time, end_time):
@@ -1265,7 +1275,7 @@ def employee_dashboard():
 
     cur.execute(
         """
-        SELECT r.id, r.request_type, r.status, r.reason, r.created_at,
+        SELECT r.id, r.request_type, r.status, r.reason, r.created_at, r.request_date,
                r.switch_target_status,
                s.shift_date, s.start_time, s.end_time, s.class_name,
                u.username AS requested_employee
@@ -1462,50 +1472,43 @@ def request_switch():
 @login_required
 @role_required("employee")
 def request_callout():
-    # Let an employee submit a call-out request for one of their shifts.
+    # Let an employee request off for any date, optionally tied to an assigned shift.
     db = get_db()
     cur = db.cursor(dictionary=True)
     _ensure_feature_schema(cur)
 
     if request.method == "POST":
-        shift_id = request.form.get("shift_id")
+        shift_id = request.form.get("shift_id") or None
+        request_date = _parse_date_value(request.form.get("request_date", ""))
         reason = request.form.get("reason", "").strip()
-        replacement_employee_id = request.form.get("replacement_employee_id", type=int)
 
-        cur.execute(
-            "SELECT id FROM shifts WHERE id = %s AND employee_user_id = %s",
-            (shift_id, session["user_id"]),
-        )
-        owned_shift = cur.fetchone()
-        if not owned_shift:
-            flash("You can only submit call-outs for your own shifts.", "error")
+        if not request_date:
+            flash("Please choose a valid request-off date.", "error")
             cur.close()
             return redirect(url_for("request_callout"))
-        if not replacement_employee_id:
-            flash("Please choose a replacement employee.", "error")
-            cur.close()
-            return redirect(url_for("request_callout"))
-        cur.execute(
-            "SELECT id FROM users WHERE id = %s AND role = 'employee'",
-            (replacement_employee_id,),
-        )
-        replacement = cur.fetchone()
-        if not replacement:
-            flash("Replacement employee is invalid.", "error")
-            cur.close()
-            return redirect(url_for("request_callout"))
+
+        if shift_id:
+            cur.execute(
+                "SELECT id FROM shifts WHERE id = %s AND employee_user_id = %s",
+                (shift_id, session["user_id"]),
+            )
+            owned_shift = cur.fetchone()
+            if not owned_shift:
+                flash("You can only attach your own shifts to request-off submissions.", "error")
+                cur.close()
+                return redirect(url_for("request_callout"))
 
         cur.execute(
             """
-            INSERT INTO requests (request_type, requester_user_id, shift_id, reason, status, replacement_employee_id)
-            VALUES ('callout', %s, %s, %s, 'pending', %s)
+            INSERT INTO requests (request_type, requester_user_id, shift_id, request_date, reason, status)
+            VALUES ('time_off', %s, %s, %s, %s, 'pending')
             """,
-            (session["user_id"], shift_id, reason, replacement_employee_id),
+            (session["user_id"], shift_id, request_date, reason),
         )
         db.commit()
         cur.close()
 
-        flash("Call-out request submitted.", "success")
+        flash("Request-off submitted.", "success")
         return redirect(url_for("employee_dashboard"))
 
     cur.execute(
@@ -1532,18 +1535,19 @@ def request_callout():
                 selected_shift_id = row["id"]
                 break
 
-    cur.execute(
-        "SELECT id, username FROM users WHERE role = 'employee' AND id != %s ORDER BY username",
-        (session["user_id"],),
-    )
-    employees = cur.fetchall()
+    selected_request_date = _parse_date_value(prefill_shift_date) or date.today()
+    if selected_shift_id:
+        for row in my_upcoming_shifts:
+            if row["id"] == selected_shift_id:
+                selected_request_date = row["shift_date"]
+                break
     cur.close()
 
     return render_template(
         "request_callout.html",
         my_upcoming_shifts=my_upcoming_shifts,
         selected_shift_id=selected_shift_id,
-        employees=employees,
+        selected_request_date=selected_request_date,
     )
 
 
@@ -2507,19 +2511,8 @@ def manager_schedule():
     cur = db.cursor(dictionary=True)
     _ensure_feature_schema(cur)
 
-    calendar_start = date.today()
-    calendar_end = calendar_start + timedelta(days=55)
-
     def parse_selected_day(raw_value):
-        if not raw_value:
-            return calendar_start
-        try:
-            parsed = datetime.strptime(raw_value, "%Y-%m-%d").date()
-        except ValueError:
-            return calendar_start
-        if parsed < calendar_start or parsed > calendar_end:
-            return calendar_start
-        return parsed
+        return _parse_date_value(raw_value) or date.today()
 
     def schedule_redirect(day_value):
         return redirect(url_for("manager_schedule", day=day_value.isoformat()))
@@ -2769,6 +2762,8 @@ def manager_schedule():
         return schedule_redirect(selected_day)
 
     selected_day = parse_selected_day(request.args.get("day", "").strip())
+    calendar_start = selected_day
+    calendar_end = calendar_start + timedelta(days=13)
 
     cur.execute(
         "SELECT id, username, employee_title FROM users WHERE role = 'employee' ORDER BY username"

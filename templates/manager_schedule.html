@@ -2,8 +2,14 @@
 {% block content %}
 <section class="card">
   <h2>Manager Schedule Editor</h2>
-  <p class="hint">Schedule by day and hours only.</p>
+  <p class="hint">Schedule any date by day and hours.</p>
   <div class="section-tools">
+    <form method="get" class="inline">
+      <label>Schedule Date
+        <input type="date" name="day" value="{{ selected_day.isoformat() }}" required />
+      </label>
+      <button type="submit">Go</button>
+    </form>
     <label>Search Schedule
       <input type="search" placeholder="Date, employee, time" data-table-filter="manager-schedule-table" />
     </label>
