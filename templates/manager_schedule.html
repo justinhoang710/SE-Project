@@ -2,21 +2,91 @@
 {% block content %}
 <section class="card">
   <h2>Manager Schedule Editor</h2>
-  <p class="hint">Schedule any date by day and hours.</p>
-  <div class="section-tools">
-    <form method="get" class="inline">
-      <label>Schedule Date
-        <input type="date" name="day" value="{{ selected_day.isoformat() }}" required />
+  <form method="post" class="create-shift-form">
+    <input type="hidden" name="action" value="create_schedule" />
+    <div class="section-tools">
+      <label>Date
+        <input type="date" name="schedule_date" value="{{ selected_day.isoformat() }}" required />
       </label>
-      <button type="submit">Go</button>
-    </form>
+
+      <label>Employee
+        <select name="employee_user_id" required>
+          <option value="">Select employee</option>
+          {% for employee in employees %}
+            <option value="{{ employee.id }}">{{ employee.username }}{% if employee.employee_title %} ({{ employee.employee_title }}){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>Start
+        <input type="time" name="start_time" required />
+      </label>
+
+      <label>End
+        <input type="time" name="end_time" required />
+      </label>
+    </div>
+
+    <div class="section-tools">
+      <label class="employee-checkbox-item">
+        <input type="checkbox" name="repeat_weekly" value="on" />
+        <span>Repeat every week</span>
+      </label>
+
+      <label>Repeat Until
+        <input type="date" name="repeat_until" value="{{ selected_day.isoformat() }}" />
+      </label>
+
+      <button type="submit">Create Schedule</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h3>{{ selected_day.strftime('%A, %b %d, %Y') }}</h3>
+
+  <form method="get" class="section-tools">
+    <label>View Date
+      <input type="date" name="day" value="{{ selected_day.isoformat() }}" required />
+    </label>
+    <button type="submit">View</button>
+  </form>
+
+  <div class="table-shell">
+    <table>
+      <tr><th>Time</th><th>Employee</th><th>Action</th></tr>
+      <tbody>
+      {% for shift in selected_day_assignments %}
+        <tr>
+          <td class="mono">{{ shift.start_label }}-{{ shift.end_label }}</td>
+          <td>{{ shift.employee }}</td>
+          <td>
+            <form method="post" class="inline">
+              <input type="hidden" name="action" value="delete_shift" />
+              <input type="hidden" name="selected_day" value="{{ selected_day.isoformat() }}" />
+              <input type="hidden" name="shift_id" value="{{ shift.id }}" />
+              <button type="submit" class="danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">No shifts for this date.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h3>Upcoming Schedule</h3>
+  <div class="section-tools">
     <label>Search Schedule
       <input type="search" placeholder="Date, employee, time" data-table-filter="manager-schedule-table" />
     </label>
   </div>
   <div class="table-shell tall">
     <table id="manager-schedule-table">
-      <tr><th>Date</th><th>Time</th><th>Employees Working Together</th></tr>
+      <tr><th>Date</th><th>Time</th><th>Employees Working</th></tr>
       <tbody>
       {% for week in calendar_weeks %}
         {% for day in week %}
@@ -32,88 +102,6 @@
       </tbody>
     </table>
   </div>
-</section>
-
-<section class="card">
-  <h3>Selected Day: {{ selected_day.strftime('%A, %b %d, %Y') }}</h3>
-
-  <div class="table-shell">
-    <table>
-      <tr><th>Time</th><th>Employees Working Together</th><th>Edit</th></tr>
-      <tbody>
-      {% for block in selected_day_blocks %}
-        <tr>
-          <td class="mono">{{ block.start_label }}-{{ block.end_label }}</td>
-          <td>{{ block.employees|join(', ') }}</td>
-          <td>
-            <details>
-              <summary><strong>Edit</strong></summary>
-              <form method="post" class="shift-editor" style="margin-top: 0.4rem;">
-                <input type="hidden" name="action" value="update_block" />
-                <input type="hidden" name="selected_day" value="{{ selected_day.isoformat() }}" />
-                <input type="hidden" name="original_start_time" value="{{ block.start_value }}" />
-                <input type="hidden" name="original_end_time" value="{{ block.end_value }}" />
-                <label>Start
-                  <input type="text" name="start_time" value="{{ block.start_label }}" placeholder="4:30 PM" required />
-                </label>
-                <label>End
-                  <input type="text" name="end_time" value="{{ block.end_label }}" placeholder="6:00 PM" required />
-                </label>
-                <label>Employees
-                  <div class="employee-checkbox-list">
-                    {% for employee in employees %}
-                      <label class="employee-checkbox-item">
-                        <input type="checkbox" name="employee_user_ids" value="{{ employee.id }}" {% if employee.id in block.employee_user_ids %}checked{% endif %} />
-                        <span>{{ employee.username }}{% if employee.employee_title %} ({{ employee.employee_title }}){% endif %}</span>
-                      </label>
-                    {% endfor %}
-                  </div>
-                </label>
-                <button type="submit">Save</button>
-              </form>
-              <form method="post" class="inline" style="margin-top: 0.35rem;">
-                <input type="hidden" name="action" value="delete_block" />
-                <input type="hidden" name="selected_day" value="{{ selected_day.isoformat() }}" />
-                <input type="hidden" name="original_start_time" value="{{ block.start_value }}" />
-                <input type="hidden" name="original_end_time" value="{{ block.end_value }}" />
-                <button type="submit" class="danger">Delete Block</button>
-              </form>
-            </details>
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="3">No shifts for this day.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <details class="section-collapse" style="margin-top: 0.55rem;" open>
-    <summary>Add Time Block</summary>
-    <form method="post" class="create-shift-form">
-      <input type="hidden" name="action" value="create_block" />
-      <input type="hidden" name="selected_day" value="{{ selected_day.isoformat() }}" />
-      <div class="section-tools">
-        <label>Start
-          <input type="text" name="start_time" placeholder="4:30 PM" required />
-        </label>
-        <label>End
-          <input type="text" name="end_time" placeholder="6:00 PM" required />
-        </label>
-      </div>
-      <label>Employees Working This Block
-        <div class="employee-checkbox-list">
-          {% for employee in employees %}
-            <label class="employee-checkbox-item">
-              <input type="checkbox" name="employee_user_ids" value="{{ employee.id }}" />
-              <span>{{ employee.username }}{% if employee.employee_title %} ({{ employee.employee_title }}){% endif %}</span>
-            </label>
-          {% endfor %}
-        </div>
-      </label>
-      <button type="submit">Add Block</button>
-    </form>
-  </details>
 </section>
 
 <section class="card">

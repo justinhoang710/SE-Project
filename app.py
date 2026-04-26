@@ -570,25 +570,6 @@ def _format_time_12h(value):
         return str(value)
 
 
-def _format_time_hhmm(value):
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        parsed = _parse_time_value(value)
-        if parsed:
-            return parsed.strftime("%H:%M")
-        return value
-    if isinstance(value, timedelta):
-        total_minutes = int(value.total_seconds() // 60)
-        hours = (total_minutes // 60) % 24
-        minutes = total_minutes % 60
-        return f"{hours:02d}:{minutes:02d}"
-    try:
-        return value.strftime("%H:%M")
-    except Exception:
-        return str(value)
-
-
 def _format_date_label(value):
     if isinstance(value, date):
         return value.strftime("%Y-%m-%d")
@@ -2519,9 +2500,6 @@ def manager_schedule():
     def schedule_redirect(day_value):
         return redirect(url_for("manager_schedule", day=day_value.isoformat()))
 
-    def _normalize_employee_ids(values):
-        return sorted({int(v) for v in values if (v or "").isdigit()})
-
     def _employee_overlap(employee_id, shift_day, start_db, end_db, excluded_ids=None):
         excluded_ids = excluded_ids or []
         if excluded_ids:
@@ -2554,17 +2532,25 @@ def manager_schedule():
 
     if request.method == "POST":
         action = request.form.get("action", "").strip()
-        selected_day = parse_selected_day(request.form.get("selected_day", "").strip())
+        selected_day = parse_selected_day(
+            request.form.get("schedule_date", "").strip()
+            or request.form.get("selected_day", "").strip()
+        )
         shift_day = selected_day.isoformat()
 
-        if action == "create_block":
+        if action == "create_schedule":
+            employee_id = request.form.get("employee_user_id", type=int)
             start_time = request.form.get("start_time", "").strip()
             end_time = request.form.get("end_time", "").strip()
-            employee_ids = _normalize_employee_ids(request.form.getlist("employee_user_ids"))
+            repeat_weekly = request.form.get("repeat_weekly") == "on"
+            repeat_until = selected_day
+            if repeat_weekly:
+                repeat_until = _parse_date_value(request.form.get("repeat_until", "")) or selected_day
+
             parsed_start = _parse_time_value(start_time)
             parsed_end = _parse_time_value(end_time)
-            if not (parsed_start and parsed_end and employee_ids):
-                flash("Start, end, and at least one employee are required.", "error")
+            if not (employee_id and parsed_start and parsed_end):
+                flash("Date, employee, start, and end are required.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
             start_db = parsed_start.strftime("%H:%M")
@@ -2573,189 +2559,91 @@ def manager_schedule():
                 flash("End time must be later than start time.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
-
-            placeholders = ", ".join(["%s"] * len(employee_ids))
-            cur.execute(
-                f"SELECT id FROM users WHERE role = 'employee' AND id IN ({placeholders})",
-                tuple(employee_ids),
-            )
-            valid_employee_ids = {int(row["id"]) for row in cur.fetchall()}
-            if len(valid_employee_ids) != len(employee_ids):
-                flash("One or more selected employees are invalid.", "error")
+            if repeat_until < selected_day:
+                flash("Repeat-until date must be on or after the schedule date.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
 
-            conflicts = []
-            for employee_id in employee_ids:
-                if _employee_overlap(employee_id, shift_day, start_db, end_db):
-                    conflicts.append(employee_id)
+            cur.execute(
+                "SELECT id FROM users WHERE id = %s AND role = 'employee'",
+                (employee_id,),
+            )
+            if not cur.fetchone():
+                flash("Please choose a valid employee.", "error")
+                cur.close()
+                return schedule_redirect(selected_day)
+
+            occurrence_days = []
+            current_day = selected_day
+            while current_day <= repeat_until and len(occurrence_days) < 53:
+                occurrence_days.append(current_day)
+                if not repeat_weekly:
+                    break
+                current_day = current_day + timedelta(days=7)
+
+            conflicts = [
+                day_value
+                for day_value in occurrence_days
+                if _employee_overlap(employee_id, day_value.isoformat(), start_db, end_db)
+            ]
             if conflicts:
-                flash("At least one selected employee has an overlapping shift.", "error")
+                conflict_label = ", ".join(day_value.strftime("%Y-%m-%d") for day_value in conflicts[:5])
+                flash(f"Employee already has an overlapping shift on: {conflict_label}.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
 
             first_shift_id = None
-            for employee_id in employee_ids:
+            for day_value in occurrence_days:
                 cur.execute(
                     """
                     INSERT INTO shifts (employee_user_id, shift_date, start_time, end_time, class_name, program_track)
                     VALUES (%s, %s, %s, %s, 'Scheduled Shift', 'kids_martial_arts')
                     """,
-                    (employee_id, shift_day, start_db, end_db),
+                    (employee_id, day_value.isoformat(), start_db, end_db),
                 )
                 if not first_shift_id:
                     first_shift_id = cur.lastrowid
 
             if first_shift_id:
+                repeat_text = "weekly" if repeat_weekly else "once"
                 _log_schedule_activity(
                     cur,
                     first_shift_id,
-                    "block_created",
-                    f"Block {shift_day} {start_db}-{end_db} with {len(employee_ids)} employee(s)",
+                    "shift_created",
+                    f"Created {repeat_text} schedule for user {employee_id}: {shift_day} {start_db}-{end_db} ({len(occurrence_days)} shift(s))",
                     session["user_id"],
                 )
             db.commit()
-            flash("Time block created.", "success")
+            flash("Schedule created.", "success")
             cur.close()
             return schedule_redirect(selected_day)
 
-        if action in {"update_block", "delete_block"}:
-            original_start_raw = request.form.get("original_start_time", "").strip()
-            original_end_raw = request.form.get("original_end_time", "").strip()
-            original_start = _parse_time_value(original_start_raw)
-            original_end = _parse_time_value(original_end_raw)
-            if not (original_start and original_end):
-                flash("Original block time is invalid.", "error")
-                cur.close()
-                return schedule_redirect(selected_day)
-            original_start_db = original_start.strftime("%H:%M")
-            original_end_db = original_end.strftime("%H:%M")
-
+        if action == "delete_shift":
+            shift_id = request.form.get("shift_id", type=int)
             cur.execute(
                 """
-                SELECT id, employee_user_id
+                SELECT id
                 FROM shifts
-                WHERE shift_date = %s
-                  AND start_time = %s
-                  AND end_time = %s
+                WHERE id = %s
+                  AND shift_date = %s
                 """,
-                (shift_day, original_start_db, original_end_db),
+                (shift_id, shift_day),
             )
-            existing_rows = cur.fetchall()
-            if not existing_rows:
-                flash("Time block not found.", "error")
+            shift = cur.fetchone()
+            if not shift:
+                flash("Shift not found for the selected date.", "error")
                 cur.close()
                 return schedule_redirect(selected_day)
-            existing_ids = [int(row["id"]) for row in existing_rows]
-            existing_employee_ids = {int(row["employee_user_id"]) for row in existing_rows}
-            first_shift_id = existing_ids[0]
-
-            if action == "delete_block":
-                cur.execute(
-                    """
-                    DELETE FROM shifts
-                    WHERE shift_date = %s
-                      AND start_time = %s
-                      AND end_time = %s
-                    """,
-                    (shift_day, original_start_db, original_end_db),
-                )
-                _log_schedule_activity(
-                    cur,
-                    first_shift_id,
-                    "block_deleted",
-                    f"Deleted block {shift_day} {original_start_db}-{original_end_db}",
-                    session["user_id"],
-                )
-                db.commit()
-                flash("Time block removed.", "success")
-                cur.close()
-                return schedule_redirect(selected_day)
-
-            start_time = request.form.get("start_time", "").strip()
-            end_time = request.form.get("end_time", "").strip()
-            employee_ids = _normalize_employee_ids(request.form.getlist("employee_user_ids"))
-            parsed_start = _parse_time_value(start_time)
-            parsed_end = _parse_time_value(end_time)
-            if not (parsed_start and parsed_end and employee_ids):
-                flash("Start, end, and at least one employee are required.", "error")
-                cur.close()
-                return schedule_redirect(selected_day)
-            start_db = parsed_start.strftime("%H:%M")
-            end_db = parsed_end.strftime("%H:%M")
-            if not _is_valid_time_window(start_db, end_db):
-                flash("End time must be later than start time.", "error")
-                cur.close()
-                return schedule_redirect(selected_day)
-
-            placeholders = ", ".join(["%s"] * len(employee_ids))
-            cur.execute(
-                f"SELECT id FROM users WHERE role = 'employee' AND id IN ({placeholders})",
-                tuple(employee_ids),
-            )
-            valid_employee_ids = {int(row["id"]) for row in cur.fetchall()}
-            if len(valid_employee_ids) != len(employee_ids):
-                flash("One or more selected employees are invalid.", "error")
-                cur.close()
-                return schedule_redirect(selected_day)
-
-            for employee_id in employee_ids:
-                if _employee_overlap(employee_id, shift_day, start_db, end_db, excluded_ids=existing_ids):
-                    flash("At least one selected employee has an overlapping shift.", "error")
-                    cur.close()
-                    return schedule_redirect(selected_day)
-
-            remove_ids = sorted(existing_employee_ids.difference(employee_ids))
-            add_ids = sorted(set(employee_ids).difference(existing_employee_ids))
-            keep_ids = sorted(existing_employee_ids.intersection(employee_ids))
-
-            if remove_ids:
-                placeholders = ", ".join(["%s"] * len(remove_ids))
-                cur.execute(
-                    f"""
-                    DELETE FROM shifts
-                    WHERE shift_date = %s
-                      AND start_time = %s
-                      AND end_time = %s
-                      AND employee_user_id IN ({placeholders})
-                    """,
-                    (shift_day, original_start_db, original_end_db, *remove_ids),
-                )
-
-            if keep_ids:
-                placeholders = ", ".join(["%s"] * len(keep_ids))
-                cur.execute(
-                    f"""
-                    UPDATE shifts
-                    SET start_time = %s,
-                        end_time = %s,
-                        class_name = 'Scheduled Shift'
-                    WHERE shift_date = %s
-                      AND start_time = %s
-                      AND end_time = %s
-                      AND employee_user_id IN ({placeholders})
-                    """,
-                    (start_db, end_db, shift_day, original_start_db, original_end_db, *keep_ids),
-                )
-
-            for employee_id in add_ids:
-                cur.execute(
-                    """
-                    INSERT INTO shifts (employee_user_id, shift_date, start_time, end_time, class_name, program_track)
-                    VALUES (%s, %s, %s, %s, 'Scheduled Shift', 'kids_martial_arts')
-                    """,
-                    (employee_id, shift_day, start_db, end_db),
-                )
-
             _log_schedule_activity(
                 cur,
-                first_shift_id,
-                "block_updated",
-                f"Updated block {shift_day} {original_start_db}-{original_end_db} to {start_db}-{end_db} with {len(employee_ids)} employee(s)",
+                shift_id,
+                "shift_deleted",
+                f"Deleted shift {shift_day}",
                 session["user_id"],
             )
+            cur.execute("DELETE FROM shifts WHERE id = %s", (shift_id,))
             db.commit()
-            flash("Time block updated.", "success")
+            flash("Shift deleted.", "success")
             cur.close()
             return schedule_redirect(selected_day)
 
@@ -2808,13 +2696,9 @@ def manager_schedule():
                 "end_time": row["end_time"],
                 "start_label": row["start_label"],
                 "end_label": row["end_label"],
-                "start_value": _format_time_hhmm(row["start_time"]),
-                "end_value": _format_time_hhmm(row["end_time"]),
-                "employee_user_ids": [],
                 "employees": [],
             }
             block_map[block_key] = block
-        block["employee_user_ids"].append(int(row["employee_user_id"]))
         label = row["employee"]
         if row.get("employee_title"):
             label = f"{label} ({row['employee_title']})"
@@ -2826,12 +2710,23 @@ def manager_schedule():
     )
     calendar_weeks = _build_two_week_calendar(calendar_start, blocks)
     selected_day_key = selected_day.isoformat()
-    selected_day_blocks = []
+    selected_day_assignments = []
     for week in calendar_weeks:
         for day in week:
             day["is_selected"] = day["iso_date"] == selected_day_key
-            if day["is_selected"]:
-                selected_day_blocks = day["shifts"]
+    for row in assignments:
+        if row["shift_date"].isoformat() == selected_day_key:
+            label = row["employee"]
+            if row.get("employee_title"):
+                label = f"{label} ({row['employee_title']})"
+            selected_day_assignments.append(
+                {
+                    "id": row["id"],
+                    "start_label": row["start_label"],
+                    "end_label": row["end_label"],
+                    "employee": label,
+                }
+            )
 
     cur.execute(
         """
@@ -2858,7 +2753,7 @@ def manager_schedule():
         calendar_weeks=calendar_weeks,
         employees=employees,
         selected_day=selected_day,
-        selected_day_blocks=selected_day_blocks,
+        selected_day_assignments=selected_day_assignments,
         weekly_hours_by_employee=weekly_hours_by_employee,
     )
 
