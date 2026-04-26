@@ -1689,6 +1689,26 @@ def staff_class_signup():
             cur.close()
             return redirect(url_for("staff_class_signup"))
 
+        week_start = _week_start_monday(offering["class_date"])
+        week_end = week_start + timedelta(days=6)
+        cur.execute(
+            """
+            SELECT COUNT(*) AS signup_count
+            FROM staff_class_signups scs
+            JOIN class_offerings co ON co.id = scs.offering_id
+            WHERE scs.staff_user_id = %s
+              AND co.class_date BETWEEN %s AND %s
+              AND co.program_track = 'adult_martial_arts'
+              AND co.id != %s
+            """,
+            (session["user_id"], week_start, week_end, offering_id),
+        )
+        signup_count = int((cur.fetchone() or {}).get("signup_count") or 0)
+        if signup_count >= MAX_CLASSES_PER_WEEK:
+            flash("You can only sign up for 3 Teen & Adult classes per week.", "error")
+            cur.close()
+            return redirect(url_for("staff_class_signup"))
+
         cur.execute(
             """
             INSERT IGNORE INTO staff_class_signups (offering_id, staff_user_id)
