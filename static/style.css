@@ -244,7 +244,7 @@ td[colspan] { text-align: center; color: var(--text-muted); }
 
 .manager-calendar-week {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.45rem;
 }
 
@@ -252,7 +252,7 @@ td[colspan] { text-align: center; color: var(--text-muted); }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: #fff;
-  min-height: 170px;
+  min-height: 135px;
   display: grid;
   grid-template-rows: auto 1fr;
 }

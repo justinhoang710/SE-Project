@@ -520,15 +520,15 @@ def _fetch_child_progress_rows(cur, child_ids):
     return grouped
 
 
-def _build_two_week_calendar(start_date, shifts):
-    # Build a 14-day calendar payload grouped into 2 weeks for UI rendering.
+def _build_two_week_calendar(start_date, shifts, day_count=14):
+    # Build a calendar payload grouped into week-sized rows for UI rendering.
     shifts_by_date = {}
     for shift in shifts:
         key = shift["shift_date"].isoformat()
         shifts_by_date.setdefault(key, []).append(shift)
 
     days = []
-    for offset in range(14):
+    for offset in range(day_count):
         day_value = start_date + timedelta(days=offset)
         key = day_value.isoformat()
         days.append(
@@ -541,7 +541,7 @@ def _build_two_week_calendar(start_date, shifts):
             }
         )
 
-    return [days[:7], days[7:]]
+    return [days[index : index + 7] for index in range(0, len(days), 7)]
 
 
 def _parse_time_value(value):
@@ -581,6 +581,43 @@ def _parse_date_value(value):
         return datetime.strptime((value or "").strip(), "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _schedule_window(raw_date=None, raw_view=None):
+    anchor = _parse_date_value(raw_date) or date.today()
+    view = (raw_view or "biweekly").strip().lower()
+    if view not in {"day", "week", "biweekly", "month"}:
+        view = "biweekly"
+
+    if view == "day":
+        start_day = anchor
+        day_count = 1
+        label = anchor.strftime("%b %d, %Y")
+    elif view == "week":
+        start_day = _week_start_monday(anchor)
+        day_count = 7
+        label = f"{start_day.strftime('%b %d')} - {(start_day + timedelta(days=6)).strftime('%b %d, %Y')}"
+    elif view == "month":
+        start_day = anchor.replace(day=1)
+        if start_day.month == 12:
+            next_month = start_day.replace(year=start_day.year + 1, month=1)
+        else:
+            next_month = start_day.replace(month=start_day.month + 1)
+        day_count = (next_month - start_day).days
+        label = start_day.strftime("%B %Y")
+    else:
+        start_day = anchor
+        day_count = 14
+        label = f"{start_day.strftime('%b %d')} - {(start_day + timedelta(days=13)).strftime('%b %d, %Y')}"
+
+    return {
+        "anchor": anchor,
+        "view": view,
+        "start": start_day,
+        "end": start_day + timedelta(days=day_count - 1),
+        "day_count": day_count,
+        "label": label,
+    }
 
 
 def _shift_hours(start_time, end_time):
@@ -1295,8 +1332,12 @@ def employee_dashboard():
     )
     incoming_switch_requests = cur.fetchall()
 
-    calendar_start = date.today()
-    calendar_end = calendar_start + timedelta(days=13)
+    schedule_window = _schedule_window(
+        request.args.get("schedule_date"),
+        request.args.get("schedule_view"),
+    )
+    calendar_start = schedule_window["start"]
+    calendar_end = schedule_window["end"]
     cur.execute(
         """
         SELECT
@@ -1318,7 +1359,11 @@ def employee_dashboard():
     upcoming_shifts = cur.fetchall()
     for row in upcoming_shifts:
         row["hours"] = _shift_hours(row.get("start_time"), row.get("end_time"))
-    calendar_weeks = _build_two_week_calendar(calendar_start, upcoming_shifts)
+    calendar_weeks = _build_two_week_calendar(
+        calendar_start,
+        upcoming_shifts,
+        schedule_window["day_count"],
+    )
     weekly_hours = 0.0
     if upcoming_shifts:
         weekly_hours = round(sum(float(row.get("hours") or 0) for row in upcoming_shifts[:7]), 2)
@@ -1330,6 +1375,7 @@ def employee_dashboard():
         my_requests=my_requests,
         incoming_switch_requests=incoming_switch_requests,
         calendar_weeks=calendar_weeks,
+        schedule_window=schedule_window,
         weekly_hours=weekly_hours,
     )
 
@@ -1615,12 +1661,13 @@ def staff_class_signup():
             SELECT id, class_date
             FROM class_offerings
             WHERE id = %s
+              AND program_track = 'adult_martial_arts'
             """,
             (offering_id,),
         )
         offering = cur.fetchone()
         if not offering:
-            flash("Class offering not found.", "error")
+            flash("Staff can only sign up for Teen & Adult classes.", "error")
             cur.close()
             return redirect(url_for("staff_class_signup"))
         if offering["class_date"] < date.today():
@@ -1668,6 +1715,7 @@ def staff_class_signup():
             TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label
         FROM class_offerings co
         WHERE co.class_date >= %s
+          AND co.program_track = 'adult_martial_arts'
         ORDER BY co.class_date, co.start_time, co.class_name
         """,
         (date.today(),),
@@ -1698,6 +1746,7 @@ def staff_class_signup():
         JOIN class_offerings co ON co.id = scs.offering_id
         WHERE scs.staff_user_id = %s
           AND co.class_date >= %s
+          AND co.program_track = 'adult_martial_arts'
         ORDER BY co.class_date, co.start_time
         """,
         (session["user_id"], date.today()),
@@ -2396,8 +2445,12 @@ def manager_dashboard():
     )
     recent_time_off_requests = cur.fetchall()
 
-    calendar_start = date.today()
-    calendar_end = calendar_start + timedelta(days=13)
+    schedule_window = _schedule_window(
+        request.args.get("schedule_date"),
+        request.args.get("schedule_view"),
+    )
+    calendar_start = schedule_window["start"]
+    calendar_end = schedule_window["end"]
     cur.execute(
         """
         SELECT
@@ -2470,7 +2523,11 @@ def manager_dashboard():
         """
     )
     schedule_history = cur.fetchall()
-    calendar_weeks = _build_two_week_calendar(calendar_start, grouped_upcoming_blocks)
+    calendar_weeks = _build_two_week_calendar(
+        calendar_start,
+        grouped_upcoming_blocks,
+        schedule_window["day_count"],
+    )
     cur.close()
 
     return render_template(
@@ -2480,6 +2537,7 @@ def manager_dashboard():
         pending_time_off_requests=pending_time_off_requests,
         recent_time_off_requests=recent_time_off_requests,
         calendar_weeks=calendar_weeks,
+        schedule_window=schedule_window,
         weekly_hours_by_employee=weekly_hours_by_employee,
         schedule_history=schedule_history,
     )
@@ -2497,8 +2555,14 @@ def manager_schedule():
     def parse_selected_day(raw_value):
         return _parse_date_value(raw_value) or date.today()
 
-    def schedule_redirect(day_value):
-        return redirect(url_for("manager_schedule", day=day_value.isoformat()))
+    def schedule_redirect(day_value, view_value="biweekly"):
+        return redirect(
+            url_for(
+                "manager_schedule",
+                day=day_value.isoformat(),
+                schedule_view=view_value,
+            )
+        )
 
     def _employee_overlap(employee_id, shift_day, start_db, end_db, excluded_ids=None):
         excluded_ids = excluded_ids or []
@@ -2536,6 +2600,7 @@ def manager_schedule():
             request.form.get("schedule_date", "").strip()
             or request.form.get("selected_day", "").strip()
         )
+        selected_view = request.form.get("schedule_view", "biweekly").strip()
         shift_day = selected_day.isoformat()
 
         if action == "create_schedule":
@@ -2552,17 +2617,17 @@ def manager_schedule():
             if not (employee_id and parsed_start and parsed_end):
                 flash("Date, employee, start, and end are required.", "error")
                 cur.close()
-                return schedule_redirect(selected_day)
+                return schedule_redirect(selected_day, selected_view)
             start_db = parsed_start.strftime("%H:%M")
             end_db = parsed_end.strftime("%H:%M")
             if not _is_valid_time_window(start_db, end_db):
                 flash("End time must be later than start time.", "error")
                 cur.close()
-                return schedule_redirect(selected_day)
+                return schedule_redirect(selected_day, selected_view)
             if repeat_until < selected_day:
                 flash("Repeat-until date must be on or after the schedule date.", "error")
                 cur.close()
-                return schedule_redirect(selected_day)
+                return schedule_redirect(selected_day, selected_view)
 
             cur.execute(
                 "SELECT id FROM users WHERE id = %s AND role = 'employee'",
@@ -2571,7 +2636,7 @@ def manager_schedule():
             if not cur.fetchone():
                 flash("Please choose a valid employee.", "error")
                 cur.close()
-                return schedule_redirect(selected_day)
+                return schedule_redirect(selected_day, selected_view)
 
             occurrence_days = []
             current_day = selected_day
@@ -2590,7 +2655,7 @@ def manager_schedule():
                 conflict_label = ", ".join(day_value.strftime("%Y-%m-%d") for day_value in conflicts[:5])
                 flash(f"Employee already has an overlapping shift on: {conflict_label}.", "error")
                 cur.close()
-                return schedule_redirect(selected_day)
+                return schedule_redirect(selected_day, selected_view)
 
             first_shift_id = None
             for day_value in occurrence_days:
@@ -2616,7 +2681,7 @@ def manager_schedule():
             db.commit()
             flash("Schedule created.", "success")
             cur.close()
-            return schedule_redirect(selected_day)
+            return schedule_redirect(selected_day, selected_view)
 
         if action == "delete_shift":
             shift_id = request.form.get("shift_id", type=int)
@@ -2633,7 +2698,7 @@ def manager_schedule():
             if not shift:
                 flash("Shift not found for the selected date.", "error")
                 cur.close()
-                return schedule_redirect(selected_day)
+                return schedule_redirect(selected_day, selected_view)
             _log_schedule_activity(
                 cur,
                 shift_id,
@@ -2645,15 +2710,19 @@ def manager_schedule():
             db.commit()
             flash("Shift deleted.", "success")
             cur.close()
-            return schedule_redirect(selected_day)
+            return schedule_redirect(selected_day, selected_view)
 
         flash("Invalid schedule action.", "error")
         cur.close()
-        return schedule_redirect(selected_day)
+        return schedule_redirect(selected_day, selected_view)
 
-    selected_day = parse_selected_day(request.args.get("day", "").strip())
-    calendar_start = selected_day
-    calendar_end = calendar_start + timedelta(days=13)
+    schedule_window = _schedule_window(
+        request.args.get("day"),
+        request.args.get("schedule_view"),
+    )
+    selected_day = schedule_window["anchor"]
+    calendar_start = schedule_window["start"]
+    calendar_end = schedule_window["end"]
 
     cur.execute(
         "SELECT id, username, employee_title FROM users WHERE role = 'employee' ORDER BY username"
@@ -2708,7 +2777,11 @@ def manager_schedule():
         block_map.values(),
         key=lambda b: (b["shift_date"], b["start_time"], b["end_time"]),
     )
-    calendar_weeks = _build_two_week_calendar(calendar_start, blocks)
+    calendar_weeks = _build_two_week_calendar(
+        calendar_start,
+        blocks,
+        schedule_window["day_count"],
+    )
     selected_day_key = selected_day.isoformat()
     selected_day_assignments = []
     for week in calendar_weeks:
@@ -2753,6 +2826,7 @@ def manager_schedule():
         calendar_weeks=calendar_weeks,
         employees=employees,
         selected_day=selected_day,
+        schedule_window=schedule_window,
         selected_day_assignments=selected_day_assignments,
         weekly_hours_by_employee=weekly_hours_by_employee,
     )

@@ -4,6 +4,7 @@
   <h2>Manager Schedule Editor</h2>
   <form method="post" class="create-shift-form">
     <input type="hidden" name="action" value="create_schedule" />
+    <input type="hidden" name="schedule_view" value="{{ schedule_window.view }}" />
     <div class="section-tools">
       <label>Date
         <input type="date" name="schedule_date" value="{{ selected_day.isoformat() }}" required />
@@ -49,6 +50,14 @@
     <label>View Date
       <input type="date" name="day" value="{{ selected_day.isoformat() }}" required />
     </label>
+    <label>View
+      <select name="schedule_view">
+        <option value="day" {% if schedule_window.view == 'day' %}selected{% endif %}>Day</option>
+        <option value="week" {% if schedule_window.view == 'week' %}selected{% endif %}>Week</option>
+        <option value="biweekly" {% if schedule_window.view == 'biweekly' %}selected{% endif %}>Biweekly</option>
+        <option value="month" {% if schedule_window.view == 'month' %}selected{% endif %}>Month</option>
+      </select>
+    </label>
     <button type="submit">View</button>
   </form>
 
@@ -78,8 +87,22 @@
 </section>
 
 <section class="card">
-  <h3>Upcoming Schedule</h3>
+  <h3>Upcoming Schedule: {{ schedule_window.label }}</h3>
   <div class="section-tools">
+    <form method="get" class="inline">
+      <label>Date
+        <input type="date" name="day" value="{{ selected_day.isoformat() }}" required />
+      </label>
+      <label>View
+        <select name="schedule_view">
+          <option value="day" {% if schedule_window.view == 'day' %}selected{% endif %}>Day</option>
+          <option value="week" {% if schedule_window.view == 'week' %}selected{% endif %}>Week</option>
+          <option value="biweekly" {% if schedule_window.view == 'biweekly' %}selected{% endif %}>Biweekly</option>
+          <option value="month" {% if schedule_window.view == 'month' %}selected{% endif %}>Month</option>
+        </select>
+      </label>
+      <button type="submit">Apply</button>
+    </form>
     <label>Search Schedule
       <input type="search" placeholder="Date, employee, time" data-table-filter="manager-schedule-table" />
     </label>

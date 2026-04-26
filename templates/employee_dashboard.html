@@ -14,9 +14,23 @@
 </section>
 
 <section class="card">
-  <h3>My Shifts (Next 2 Weeks)</h3>
+  <h3>My Shifts: {{ schedule_window.label }}</h3>
   <p class="hint">Current week scheduled hours: {{ weekly_hours }}</p>
   <div class="section-tools">
+    <form method="get" class="inline">
+      <label>Date
+        <input type="date" name="schedule_date" value="{{ schedule_window.anchor.isoformat() }}" required />
+      </label>
+      <label>View
+        <select name="schedule_view">
+          <option value="day" {% if schedule_window.view == 'day' %}selected{% endif %}>Day</option>
+          <option value="week" {% if schedule_window.view == 'week' %}selected{% endif %}>Week</option>
+          <option value="biweekly" {% if schedule_window.view == 'biweekly' %}selected{% endif %}>Biweekly</option>
+          <option value="month" {% if schedule_window.view == 'month' %}selected{% endif %}>Month</option>
+        </select>
+      </label>
+      <button type="submit">Apply</button>
+    </form>
     <label>Search
       <input type="search" placeholder="Date, time" data-table-filter="employee-shift-table" />
     </label>
