@@ -1021,6 +1021,36 @@ def account_settings():
 
     if request.method == "POST":
         action = request.form.get("action", "").strip()
+        if action == "update_username":
+            username = request.form.get("username", "").strip()
+            if len(username) < 3:
+                flash("Username must be at least 3 characters.", "error")
+                cur.close()
+                return redirect(url_for("account_settings"))
+            cur.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE LOWER(TRIM(username)) = LOWER(%s)
+                  AND id != %s
+                """,
+                (username, user_id),
+            )
+            existing_username = cur.fetchone()
+            if existing_username:
+                flash("Username already exists. Choose a different username.", "error")
+                cur.close()
+                return redirect(url_for("account_settings"))
+            cur.execute(
+                "UPDATE users SET username = %s WHERE id = %s",
+                (username, user_id),
+            )
+            db.commit()
+            session["username"] = username
+            flash("Username updated.", "success")
+            cur.close()
+            return redirect(url_for("account_settings"))
+
         if action == "update_email":
             email = request.form.get("email", "").strip().lower()
             if "@" not in email or "." not in email:

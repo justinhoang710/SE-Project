@@ -7,6 +7,17 @@
 </section>
 
 <section class="card narrow">
+  <h3>Update Username</h3>
+  <form method="post">
+    <input type="hidden" name="action" value="update_username" />
+    <label>Username
+      <input type="text" name="username" value="{{ account.username }}" minlength="3" required />
+    </label>
+    <button type="submit">Save Username</button>
+  </form>
+</section>
+
+<section class="card narrow">
   <h3>Update Email</h3>
   <form method="post">
     <input type="hidden" name="action" value="update_email" />
@@ -30,6 +41,7 @@
     <label>Confirm New Password
       <input type="password" name="confirm_password" minlength="6" required />
     </label>
+    <p class="hint">The new password and confirmation must match.</p>
     <button type="submit">Save Password</button>
   </form>
 </section>
