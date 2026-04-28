@@ -3,6 +3,7 @@
 <section class="card">
   <h2>Class Offerings</h2>
   <form method="post">
+    <input type="hidden" name="action" value="create_class" />
     <div class="section-tools">
       <label>Track
         <select id="program-track" name="program_track" required>
@@ -66,7 +67,7 @@
   </div>
   <div class="table-shell tall">
     <table id="loaded-offerings-table">
-      <tr><th>Track</th><th>Date</th><th>Time</th><th>Belt Range</th><th>Class Name</th></tr>
+      <tr><th>Track</th><th>Date</th><th>Time</th><th>Belt Range</th><th>Class Name</th><th>Actions</th></tr>
       <tbody>
       {% for cls in offerings %}
         <tr>
@@ -75,9 +76,16 @@
           <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
           <td>{{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>
           <td>{{ cls.class_name }}</td>
+          <td>
+            <form method="post" class="inline">
+              <input type="hidden" name="action" value="delete_class" />
+              <input type="hidden" name="offering_id" value="{{ cls.id }}" />
+              <button type="submit" class="danger">Delete</button>
+            </form>
+          </td>
         </tr>
       {% else %}
-        <tr><td colspan="5">No class offerings yet.</td></tr>
+        <tr><td colspan="6">No class offerings yet.</td></tr>
       {% endfor %}
       </tbody>
     </table>

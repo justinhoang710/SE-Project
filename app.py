@@ -3217,6 +3217,64 @@ def manager_classes():
     current_track = _normalize_track(request.form.get("program_track") or request.args.get("track") or "kids_martial_arts")
 
     if request.method == "POST":
+        action = request.form.get("action", "create_class").strip()
+        if action == "delete_class":
+            offering_id = request.form.get("offering_id", type=int)
+            if not offering_id:
+                flash("Please choose a valid class offering.", "error")
+                cur.close()
+                return redirect(url_for("manager_classes"))
+
+            cur.execute(
+                """
+                SELECT id, class_date
+                FROM class_offerings
+                WHERE id = %s
+                """,
+                (offering_id,),
+            )
+            offering = cur.fetchone()
+            if not offering:
+                flash("Class offering not found.", "error")
+                cur.close()
+                return redirect(url_for("manager_classes"))
+            if offering["class_date"] < date.today():
+                flash("Cannot delete a class that already happened.", "error")
+                cur.close()
+                return redirect(url_for("manager_classes"))
+
+            cur.execute(
+                """
+                SELECT id
+                FROM attendance_sessions
+                WHERE offering_id = %s
+                LIMIT 1
+                """,
+                (offering_id,),
+            )
+            if cur.fetchone():
+                flash("Cannot delete after attendance has been recorded.", "error")
+                cur.close()
+                return redirect(url_for("manager_classes"))
+
+            try:
+                cur.execute("DELETE FROM staff_class_signups WHERE offering_id = %s", (offering_id,))
+                cur.execute("DELETE FROM class_enrollments WHERE offering_id = %s", (offering_id,))
+                cur.execute("DELETE FROM class_offerings WHERE id = %s", (offering_id,))
+                db.commit()
+                flash("Class offering deleted.", "success")
+            except Exception:
+                db.rollback()
+                flash("Class offering could not be deleted.", "error")
+            finally:
+                cur.close()
+            return redirect(url_for("manager_classes"))
+
+        if action != "create_class":
+            flash("Invalid class action.", "error")
+            cur.close()
+            return redirect(url_for("manager_classes"))
+
         program_track = _normalize_track(request.form.get("program_track", "kids_martial_arts"))
         current_track = program_track
         class_name = request.form.get("class_name", "").strip()
