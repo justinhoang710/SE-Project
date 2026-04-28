@@ -21,7 +21,7 @@
         </div>
         <div class="table-shell child-class-table">
           <table>
-            <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Attendance</th></tr>
+            <tr><th>Track</th><th>Date</th><th>Time</th><th>Class</th><th>Attendance</th><th>Action</th></tr>
             <tbody>
             {% for row in signed_up_classes_by_child[child.id] %}
               <tr>
@@ -30,9 +30,19 @@
                 <td>{{ row.start_label }}-{{ row.end_label }}</td>
                 <td>{{ row.class_name }}</td>
                 <td>{{ row.attendance_status }}</td>
+                <td>
+                  {% if row.can_cancel %}
+                    <form class="inline" method="post" action="{{ url_for('parent_cancel_signup', offering_id=row.offering_id, child_id=child.id) }}">
+                      <input type="hidden" name="return_to" value="children" />
+                      <button type="submit" class="danger">Cancel</button>
+                    </form>
+                  {% else %}
+                    <span class="hint">Locked</span>
+                  {% endif %}
+                </td>
               </tr>
             {% else %}
-              <tr><td colspan="5">No classes signed up yet.</td></tr>
+              <tr><td colspan="6">No classes signed up yet.</td></tr>
             {% endfor %}
             </tbody>
           </table>

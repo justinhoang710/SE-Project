@@ -67,13 +67,23 @@
             {% for child in children %}
               {% set signup_key = child.id|string ~ ':' ~ cls.id|string %}
               {% set block_reason = signup_block_reasons.get(signup_key) %}
-              <form class="inline signup-form" method="post" action="{{ url_for('parent_signup', offering_id=cls.id, child_id=child.id) }}">
+              {% if block_reason == 'Already enrolled' and cancelable_enrollment_lookup.get(signup_key) %}
+                <form class="inline signup-form" method="post" action="{{ url_for('parent_cancel_signup', offering_id=enrollment_offering_lookup.get(signup_key, cls.id), child_id=child.id) }}">
+                  <button class="danger" type="submit">{{ child.child_name }}: Cancel</button>
+                </form>
+              {% elif block_reason == 'Already enrolled' %}
+                <form class="inline signup-form" method="post" action="{{ url_for('parent_signup', offering_id=cls.id, child_id=child.id) }}">
+                  <button class="secondary" type="submit" disabled>{{ child.child_name }}: Already enrolled</button>
+                </form>
+              {% else %}
+                <form class="inline signup-form" method="post" action="{{ url_for('parent_signup', offering_id=cls.id, child_id=child.id) }}">
                 {% if block_reason %}
                   <button class="secondary" type="submit" disabled>{{ child.child_name }}: {{ block_reason }}</button>
                 {% else %}
                   <button type="submit">{{ child.child_name }}</button>
                 {% endif %}
-              </form>
+                </form>
+              {% endif %}
             {% endfor %}
           </td>
         </tr>

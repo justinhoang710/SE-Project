@@ -138,13 +138,20 @@
             <td>{{ child.current_belt }}</td>
             <td>{{ child.belt_progress_count }}/{{ child.total_skills }}</td>
             <td>
-              <select name="technique_ids_{{ child.id }}" class="technique-select" multiple size="2">
+              <div class="technique-checkbox-list">
                 {% for t in active_techniques %}
                   {% if t.belt_name == child.current_belt %}
-                    <option value="{{ t.id }}">{{ t.technique_name }}</option>
+                    <label class="technique-checkbox-item">
+                      <input
+                        type="checkbox"
+                        name="technique_ids_{{ child.id }}"
+                        value="{{ t.id }}"
+                      />
+                      <span>{{ t.technique_name }}</span>
+                    </label>
                   {% endif %}
                 {% endfor %}
-              </select>
+              </div>
             </td>
             <td>
               <select name="learned_increment_{{ child.id }}" class="learned-increment" data-child-id="{{ child.id }}">
@@ -176,13 +183,20 @@
               <td>{{ child.current_belt }}</td>
               <td>{{ child.belt_progress_count }}/{{ child.total_skills }}</td>
               <td>
-                <select name="technique_ids_{{ child.id }}" class="technique-select" multiple size="2">
+                <div class="technique-checkbox-list">
                   {% for t in active_techniques %}
                     {% if t.belt_name == child.current_belt %}
-                      <option value="{{ t.id }}">{{ t.technique_name }}</option>
+                      <label class="technique-checkbox-item">
+                        <input
+                          type="checkbox"
+                          name="technique_ids_{{ child.id }}"
+                          value="{{ t.id }}"
+                        />
+                        <span>{{ t.technique_name }}</span>
+                      </label>
                     {% endif %}
                   {% endfor %}
-                </select>
+                </div>
               </td>
               <td>
                 <select name="learned_increment_{{ child.id }}" class="learned-increment" data-child-id="{{ child.id }}">
@@ -270,8 +284,8 @@
             : '<span class="pill warning">Absent</span>';
         }
       }
-      row.querySelectorAll('.technique-select').forEach((select) => {
-        select.disabled = !isPresent;
+      row.querySelectorAll('.technique-checkbox-item input').forEach((checkbox) => {
+        checkbox.disabled = !isPresent;
       });
       const incrementSelect = row.querySelector('.learned-increment');
       if (incrementSelect) incrementSelect.disabled = !isPresent;

@@ -196,6 +196,33 @@ td[colspan] { text-align: center; color: var(--text-muted); }
   width: auto;
   margin: 0;
 }
+.technique-checkbox-list {
+  display: grid;
+  gap: 0.3rem;
+  max-height: 7rem;
+  min-width: 12rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 0.4rem;
+}
+.technique-checkbox-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.4rem;
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+.technique-checkbox-item input {
+  width: auto;
+  margin: 0.12rem 0 0;
+}
+.technique-checkbox-item:has(input:disabled) {
+  color: var(--text-muted);
+}
 
 .section-collapse {
   border: 1px solid var(--border);

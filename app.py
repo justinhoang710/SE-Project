@@ -58,8 +58,12 @@ def _belt_name_for_index(belt_index):
 
 def _belt_bounds_for_offering(offering_row):
     max_belt_allowed = len(BELT_SEQUENCE) - 1
-    min_belt = int(offering_row.get("min_belt_index") or 0)
-    max_belt = int(offering_row.get("max_belt_index") or max_belt_allowed)
+    raw_min_belt = offering_row.get("min_belt_index")
+    raw_max_belt = offering_row.get("max_belt_index")
+    min_belt = int(raw_min_belt) if raw_min_belt not in (None, "") else 0
+    max_belt = (
+        int(raw_max_belt) if raw_max_belt not in (None, "") else max_belt_allowed
+    )
     min_belt = max(0, min(min_belt, max_belt_allowed))
     max_belt = max(0, min(max_belt, max_belt_allowed))
     if min_belt > max_belt:
@@ -3906,7 +3910,17 @@ def parent_signup(offering_id, child_id):
 
     cur.execute(
         """
-        SELECT id, class_date, program_track, min_age, max_age, min_belt_index, max_belt_index
+        SELECT
+            id,
+            class_name,
+            class_date,
+            start_time,
+            end_time,
+            program_track,
+            min_age,
+            max_age,
+            min_belt_index,
+            max_belt_index
         FROM class_offerings
         WHERE id = %s
         """,
@@ -3936,26 +3950,39 @@ def parent_signup(offering_id, child_id):
         cur.close()
         flash("Student not found for this parent account.", "error")
         return redirect(url_for("parent_dashboard", _anchor="class-signup"))
-    eligible, reason = _is_child_eligible_for_offering(child, offering)
-    if not eligible:
-        cur.close()
-        flash(f"Student not eligible for this class: {reason}.", "error")
-        return redirect(url_for("parent_dashboard", _anchor="class-signup"))
 
     cur.execute(
         """
-        SELECT id
-        FROM class_enrollments
-        WHERE offering_id = %s
-          AND child_id = %s
+        SELECT ce.id
+        FROM class_enrollments ce
+        JOIN class_offerings co ON co.id = ce.offering_id
+        WHERE ce.child_id = %s
+          AND co.class_name = %s
+          AND co.program_track = %s
+          AND co.class_date = %s
+          AND co.start_time = %s
+          AND co.end_time = %s
         LIMIT 1
         """,
-        (offering_id, child_id),
+        (
+            child_id,
+            offering["class_name"],
+            offering["program_track"],
+            offering["class_date"],
+            offering["start_time"],
+            offering["end_time"],
+        ),
     )
     existing_enrollment = cur.fetchone()
     if existing_enrollment:
         cur.close()
         flash("Student is already enrolled in this class.", "info")
+        return redirect(url_for("parent_dashboard", _anchor="class-signup"))
+
+    eligible, reason = _is_child_eligible_for_offering(child, offering)
+    if not eligible:
+        cur.close()
+        flash(f"Student not eligible for this class: {reason}.", "error")
         return redirect(url_for("parent_dashboard", _anchor="class-signup"))
 
     cur.execute(
@@ -3998,6 +4025,102 @@ def parent_signup(offering_id, child_id):
     return redirect(url_for("parent_dashboard", _anchor="class-signup"))
 
 
+@app.route("/parent/signup/<int:offering_id>/<int:child_id>/cancel", methods=["POST"])
+@login_required
+@role_required("parent")
+def parent_cancel_signup(offering_id, child_id):
+    # Parent-owned signup cancellation before attendance has been recorded.
+    return_to = request.form.get("return_to", "").strip()
+    redirect_target = (
+        url_for("parent_children_dashboard")
+        if return_to == "children"
+        else url_for("parent_dashboard", _anchor="class-signup")
+    )
+
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    _ensure_feature_schema(cur)
+
+    cur.execute(
+        """
+        SELECT
+            co.class_name,
+            co.class_date,
+            co.start_time,
+            co.end_time,
+            co.program_track
+        FROM class_enrollments ce
+        JOIN class_offerings co ON co.id = ce.offering_id
+        JOIN children c ON c.id = ce.child_id
+        WHERE ce.offering_id = %s
+          AND ce.child_id = %s
+          AND c.parent_user_id = %s
+        LIMIT 1
+        """,
+        (offering_id, child_id, session["user_id"]),
+    )
+    enrollment = cur.fetchone()
+    if not enrollment:
+        cur.close()
+        flash("Class signup not found for this parent account.", "error")
+        return redirect(redirect_target)
+
+    if enrollment["class_date"] < date.today():
+        cur.close()
+        flash("Cannot cancel a class that already happened.", "error")
+        return redirect(redirect_target)
+
+    cur.execute(
+        """
+        SELECT ast.id
+        FROM attendance_students ast
+        JOIN attendance_sessions ats ON ats.id = ast.attendance_session_id
+        JOIN class_offerings co ON co.id = ats.offering_id
+        WHERE co.class_name = %s
+          AND co.program_track = %s
+          AND co.class_date = %s
+          AND co.start_time = %s
+          AND co.end_time = %s
+          AND ast.child_id = %s
+        LIMIT 1
+        """,
+        (
+            enrollment["class_name"],
+            enrollment["program_track"],
+            enrollment["class_date"],
+            enrollment["start_time"],
+            enrollment["end_time"],
+            child_id,
+        ),
+    )
+    if cur.fetchone():
+        cur.close()
+        flash("Cannot cancel after attendance has been recorded.", "error")
+        return redirect(redirect_target)
+
+    try:
+        cur.execute(
+            """
+            DELETE ce
+            FROM class_enrollments ce
+            JOIN children c ON c.id = ce.child_id
+            WHERE ce.offering_id = %s
+              AND ce.child_id = %s
+              AND c.parent_user_id = %s
+            """,
+            (offering_id, child_id, session["user_id"]),
+        )
+        db.commit()
+        flash("Class signup canceled.", "success")
+    except Exception as exc:
+        db.rollback()
+        flash(f"Class signup cancellation failed: {exc}", "error")
+    finally:
+        cur.close()
+
+    return redirect(redirect_target)
+
+
 def _build_parent_children_payload(cur, parent_user_id):
     cur.execute(
         """
@@ -4025,6 +4148,8 @@ def _build_parent_children_payload(cur, parent_user_id):
             co.max_age,
             co.min_belt_index,
             co.max_belt_index,
+            co.start_time,
+            co.end_time,
             TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
             TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label
         FROM class_offerings co
@@ -4037,8 +4162,28 @@ def _build_parent_children_payload(cur, parent_user_id):
     child_ids = [c["id"] for c in children]
     signed_up_classes_by_child = {child_id: [] for child_id in child_ids}
     enrolled_lookup = {}
+    cancelable_enrollment_lookup = {}
+    enrollment_offering_lookup = {}
     weekly_counts = {}
     signup_block_reasons = {}
+
+    def offering_signature(row):
+        return (
+            row.get("class_name"),
+            _normalize_track(row.get("program_track")),
+            row.get("class_date"),
+            row.get("start_time"),
+            row.get("end_time"),
+        )
+
+    signup_classes_by_signature = {}
+    for cls in signup_classes:
+        cls["program_track"] = _normalize_track(cls.get("program_track"))
+        min_belt, max_belt = _belt_bounds_for_offering(cls)
+        cls["min_belt_index"] = min_belt
+        cls["max_belt_index"] = max_belt
+        signup_classes_by_signature.setdefault(offering_signature(cls), []).append(cls)
+
     if child_ids:
         placeholders = ", ".join(["%s"] * len(child_ids))
         cur.execute(
@@ -4071,6 +4216,8 @@ def _build_parent_children_payload(cur, parent_user_id):
                 co.max_age,
                 co.min_belt_index,
                 co.max_belt_index,
+                co.start_time,
+                co.end_time,
                 TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
                 TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label,
                 ce.created_at AS enrolled_at
@@ -4084,10 +4231,22 @@ def _build_parent_children_payload(cur, parent_user_id):
         signup_rows = cur.fetchall()
         for row in signup_rows:
             row["attendance_status"] = "Not Recorded"
+            row["can_cancel"] = bool(
+                row.get("class_date") and row["class_date"] >= date.today()
+            )
             signed_up_classes_by_child[row["child_id"]].append(row)
             key_child = int(row["child_id"])
             key_offering = int(row["offering_id"])
             enrolled_lookup.setdefault(key_child, set()).add(key_offering)
+            linked_classes = signup_classes_by_signature.get(offering_signature(row), [])
+            if not linked_classes:
+                linked_classes = [{"id": key_offering}]
+            for linked_cls in linked_classes:
+                linked_offering_id = int(linked_cls["id"])
+                linked_key = f"{key_child}:{linked_offering_id}"
+                enrolled_lookup.setdefault(key_child, set()).add(linked_offering_id)
+                cancelable_enrollment_lookup[linked_key] = row["can_cancel"]
+                enrollment_offering_lookup[linked_key] = key_offering
 
         cur.execute(
             f"""
@@ -4096,9 +4255,15 @@ def _build_parent_children_payload(cur, parent_user_id):
                 ats.offering_id,
                 ast.is_present,
                 ast.was_signed_up,
-                ats.created_at
+                ats.created_at,
+                co.class_name,
+                co.class_date,
+                co.start_time,
+                co.end_time,
+                co.program_track
             FROM attendance_students ast
             JOIN attendance_sessions ats ON ats.id = ast.attendance_session_id
+            JOIN class_offerings co ON co.id = ats.offering_id
             WHERE ast.child_id IN ({placeholders})
               AND ats.offering_id IS NOT NULL
             ORDER BY ats.created_at DESC
@@ -4107,19 +4272,36 @@ def _build_parent_children_payload(cur, parent_user_id):
         )
         attendance_rows = cur.fetchall()
         attendance_lookup = {}
+        attendance_signature_lookup = {}
         for row in attendance_rows:
             key = (row["child_id"], row["offering_id"])
+            signature_key = (row["child_id"], offering_signature(row))
+            if row["is_present"] and not row.get("was_signed_up", 1):
+                status = "Present (Didn't sign up)"
+            else:
+                status = "Present" if row["is_present"] else "Absent"
             if key not in attendance_lookup:
-                if row["is_present"] and not row.get("was_signed_up", 1):
-                    attendance_lookup[key] = "Present (Didn't sign up)"
-                else:
-                    attendance_lookup[key] = "Present" if row["is_present"] else "Absent"
+                attendance_lookup[key] = status
+            if signature_key not in attendance_signature_lookup:
+                attendance_signature_lookup[signature_key] = status
 
         for child_id, rows in signed_up_classes_by_child.items():
             for row in rows:
-                status = attendance_lookup.get((child_id, row["offering_id"]))
+                status = attendance_lookup.get(
+                    (child_id, row["offering_id"])
+                ) or attendance_signature_lookup.get((child_id, offering_signature(row)))
                 if status:
                     row["attendance_status"] = status
+                    row["can_cancel"] = False
+                    linked_classes = signup_classes_by_signature.get(
+                        offering_signature(row), []
+                    )
+                    if not linked_classes:
+                        linked_classes = [{"id": row["offering_id"]}]
+                    for linked_cls in linked_classes:
+                        cancelable_enrollment_lookup[
+                            f"{child_id}:{int(linked_cls['id'])}"
+                        ] = False
 
     for cls in signup_classes:
         class_id = int(cls["id"])
@@ -4148,6 +4330,8 @@ def _build_parent_children_payload(cur, parent_user_id):
         "signup_classes": signup_classes,
         "signed_up_classes_by_child": signed_up_classes_by_child,
         "enrolled_lookup": enrolled_lookup,
+        "cancelable_enrollment_lookup": cancelable_enrollment_lookup,
+        "enrollment_offering_lookup": enrollment_offering_lookup,
         "signup_block_reasons": signup_block_reasons,
     }
 
@@ -4211,6 +4395,8 @@ def parent_dashboard():
         children=payload["children"],
         signup_classes=payload["signup_classes"],
         signup_block_reasons=payload["signup_block_reasons"],
+        cancelable_enrollment_lookup=payload["cancelable_enrollment_lookup"],
+        enrollment_offering_lookup=payload["enrollment_offering_lookup"],
         max_classes_per_week=MAX_CLASSES_PER_WEEK,
         belt_sequence=BELT_SEQUENCE,
         notes_feed=notes_feed,
