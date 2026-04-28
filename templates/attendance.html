@@ -40,25 +40,66 @@
       <label>Search Students
         <input type="search" id="attendance-student-search" placeholder="Student name" />
       </label>
-      <label>Walk-Ins (Didn't Sign Up)
-        <select id="walk-in-select" name="walk_in_child_ids" multiple size="4" {% if not current_classes %}disabled{% endif %}>
-          {% for child in walk_in_candidates %}
-            <option value="{{ child.id }}">{{ child.child_name }}</option>
-          {% else %}
-            <option value="" disabled>No walk-ins available</option>
-          {% endfor %}
-        </select>
-      </label>
+      <button type="button" id="toggle-walk-ins" class="secondary" {% if not current_classes or not walk_in_candidates %}disabled{% endif %}>
+        Add Walk-Ins
+      </button>
+      <span id="walk-in-count" class="hint" style="align-self: center;">Walk-ins: 0</span>
+    </div>
+
+    <div id="walk-in-picker" class="walk-in-picker hidden">
+      <div class="section-tools">
+        <label>Walk-In Students
+          <input type="search" id="walk-in-search" placeholder="Student name" {% if not current_classes %}disabled{% endif %} />
+        </label>
+        <button type="button" id="close-walk-ins" class="secondary">Done</button>
+      </div>
+      <div class="walk-in-list">
+        {% for child in walk_in_candidates %}
+          <label class="walk-in-option" data-search="{{ child.child_name|lower }}">
+            <input
+              type="checkbox"
+              class="walk-in-picker-checkbox"
+              value="{{ child.id }}"
+              {% if not current_classes %}disabled{% endif %}
+            />
+            <span>{{ child.child_name }}</span>
+            <span class="hint">{{ child.current_belt }}</span>
+          </label>
+        {% else %}
+          <div class="hint">No walk-ins available.</div>
+        {% endfor %}
+      </div>
     </div>
 
     <div class="section-tools">
       <label>Technique For All Present
-        <select name="bulk_technique_id" {% if not current_classes %}disabled{% endif %}>
-          <option value="">Select technique</option>
-          {% for t in active_techniques %}
-            <option value="{{ t.id }}">{{ t.technique_name }} ({{ t.belt_name }})</option>
-          {% endfor %}
-        </select>
+        <span class="bulk-technique-menu">
+          <button
+            type="button"
+            id="toggle-bulk-techniques"
+            class="secondary bulk-technique-trigger"
+            {% if not current_classes or not active_techniques %}disabled{% endif %}
+          >
+            <span id="bulk-technique-count">Select techniques</span>
+          </button>
+          <span id="bulk-technique-panel" class="bulk-technique-panel hidden">
+            {% for t in active_techniques %}
+              <span class="bulk-technique-item">
+                <input
+                  type="checkbox"
+                  class="bulk-technique-checkbox"
+                  name="bulk_technique_ids"
+                  value="{{ t.id }}"
+                  {% if not current_classes %}disabled{% endif %}
+                />
+                <span>{{ t.technique_name }}</span>
+                <span class="hint">{{ t.belt_name }}</span>
+              </span>
+            {% else %}
+              <span class="hint">No techniques available</span>
+            {% endfor %}
+          </span>
+        </span>
       </label>
 
       <label>+
@@ -84,12 +125,12 @@
         <tbody>
         {% for child in roster_students %}
           <tr
-            class="student-row"
+            class="student-row roster-row"
             data-search="{{ (child.child_name)|lower }}"
           >
             <td>
               <label class="checkbox">
-                <input type="checkbox" class="present-checkbox" name="present_child_ids" value="{{ child.id }}" />
+                <input type="checkbox" class="present-checkbox roster-present-checkbox" name="present_child_ids" value="{{ child.id }}" />
                 Yes
               </label>
             </td>
@@ -114,9 +155,49 @@
             </td>
             <td class="attendance-status"><span class="pill warning">Absent</span></td>
           </tr>
-        {% else %}
-          <tr><td colspan="7">No students enrolled in this class.</td></tr>
         {% endfor %}
+        {% if walk_in_candidates %}
+          <tr id="walk-in-section-row" class="table-section-row hidden">
+            <td colspan="7">Walk-Ins</td>
+          </tr>
+          {% for child in walk_in_candidates %}
+            <tr
+              class="student-row walk-in-row hidden"
+              data-child-id="{{ child.id }}"
+              data-search="{{ (child.child_name ~ ' walk in')|lower }}"
+            >
+              <td>
+                <label class="checkbox">
+                  <input type="checkbox" class="present-checkbox walk-in-checkbox" name="walk_in_child_ids" value="{{ child.id }}" />
+                  Yes
+                </label>
+              </td>
+              <td>{{ child.child_name }}</td>
+              <td>{{ child.current_belt }}</td>
+              <td>{{ child.belt_progress_count }}/{{ child.total_skills }}</td>
+              <td>
+                <select name="technique_ids_{{ child.id }}" class="technique-select" multiple size="2">
+                  {% for t in active_techniques %}
+                    {% if t.belt_name == child.current_belt %}
+                      <option value="{{ t.id }}">{{ t.technique_name }}</option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+              </td>
+              <td>
+                <select name="learned_increment_{{ child.id }}" class="learned-increment" data-child-id="{{ child.id }}">
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                </select>
+              </td>
+              <td class="attendance-status"><span class="pill warning">Not counted</span></td>
+            </tr>
+          {% endfor %}
+        {% endif %}
+        {% if not roster_students and not walk_in_candidates %}
+          <tr><td colspan="7">No students available for this class.</td></tr>
+        {% endif %}
         </tbody>
       </table>
     </div>
@@ -125,21 +206,69 @@
 
 <script>
   const presentCheckboxes = document.querySelectorAll('.present-checkbox');
+  const rosterPresentCheckboxes = document.querySelectorAll('.roster-present-checkbox');
   const markAllPresentBtn = document.getElementById('mark-all-present');
   const clearAllPresentBtn = document.getElementById('clear-all-present');
-  const walkInSelect = document.getElementById('walk-in-select');
   const studentSearch = document.getElementById('attendance-student-search');
+  const toggleWalkInsBtn = document.getElementById('toggle-walk-ins');
+  const closeWalkInsBtn = document.getElementById('close-walk-ins');
+  const walkInPicker = document.getElementById('walk-in-picker');
+  const walkInSearch = document.getElementById('walk-in-search');
+  const walkInCount = document.getElementById('walk-in-count');
+  const walkInSectionRow = document.getElementById('walk-in-section-row');
+  const walkInPickerCheckboxes = document.querySelectorAll('.walk-in-picker-checkbox');
+  const walkInOptions = document.querySelectorAll('.walk-in-option');
+  const toggleBulkTechniquesBtn = document.getElementById('toggle-bulk-techniques');
+  const bulkTechniquePanel = document.getElementById('bulk-technique-panel');
+  const bulkTechniqueCount = document.getElementById('bulk-technique-count');
+  const bulkTechniqueCheckboxes = document.querySelectorAll('.bulk-technique-checkbox');
   const studentRows = document.querySelectorAll('.student-row');
+
+  const updateWalkInCount = () => {
+    const selected = document.querySelectorAll('.walk-in-checkbox:checked').length;
+    if (walkInCount) walkInCount.textContent = `Walk-ins: ${selected}`;
+    if (walkInSectionRow) walkInSectionRow.classList.toggle('hidden', selected === 0);
+  };
+
+  const updateBulkTechniqueCount = () => {
+    const selected = document.querySelectorAll('.bulk-technique-checkbox:checked').length;
+    if (!bulkTechniqueCount) return;
+    bulkTechniqueCount.textContent = selected === 0
+      ? 'Select techniques'
+      : `${selected} technique${selected === 1 ? '' : 's'} selected`;
+  };
+
+  const applyStudentSearch = () => {
+    const query = studentSearch?.value.trim().toLowerCase() || '';
+    studentRows.forEach((row) => {
+      const haystack = row.dataset.search || '';
+      const matches = !query || haystack.includes(query);
+      row.style.display = matches ? '' : 'none';
+      if (row.classList.contains('walk-in-row') && !row.querySelector('.walk-in-checkbox')?.checked) {
+        row.style.display = 'none';
+      }
+    });
+  };
 
   const syncInputsByAttendance = () => {
     studentRows.forEach((row) => {
       const presentCheckbox = row.querySelector('.present-checkbox');
       const isPresent = !!presentCheckbox?.checked;
+      const isWalkIn = row.classList.contains('walk-in-row');
+      if (isWalkIn) {
+        row.classList.toggle('hidden', !isPresent);
+      }
       const statusCell = row.querySelector('.attendance-status');
       if (statusCell) {
-        statusCell.innerHTML = isPresent
-          ? '<span class="pill success">Present</span>'
-          : '<span class="pill warning">Absent</span>';
+        if (isWalkIn) {
+          statusCell.innerHTML = isPresent
+            ? '<span class="pill success">Present - walk-in</span>'
+            : '<span class="pill warning">Not counted</span>';
+        } else {
+          statusCell.innerHTML = isPresent
+            ? '<span class="pill success">Present</span>'
+            : '<span class="pill warning">Absent</span>';
+        }
       }
       row.querySelectorAll('.technique-select').forEach((select) => {
         select.disabled = !isPresent;
@@ -147,10 +276,21 @@
       const incrementSelect = row.querySelector('.learned-increment');
       if (incrementSelect) incrementSelect.disabled = !isPresent;
     });
+    updateWalkInCount();
+    applyStudentSearch();
+  };
+
+  const setWalkInSelected = (childId, selected) => {
+    const row = document.querySelector(`.walk-in-row[data-child-id="${childId}"]`);
+    const rowCheckbox = row?.querySelector('.walk-in-checkbox');
+    const pickerCheckbox = document.querySelector(`.walk-in-picker-checkbox[value="${childId}"]`);
+    if (rowCheckbox) rowCheckbox.checked = selected;
+    if (pickerCheckbox) pickerCheckbox.checked = selected;
+    syncInputsByAttendance();
   };
 
   markAllPresentBtn?.addEventListener('click', () => {
-    presentCheckboxes.forEach((cb) => {
+    rosterPresentCheckboxes.forEach((cb) => {
       cb.checked = true;
     });
     syncInputsByAttendance();
@@ -160,26 +300,66 @@
     presentCheckboxes.forEach((cb) => {
       cb.checked = false;
     });
-    if (walkInSelect) {
-      Array.from(walkInSelect.options).forEach((opt) => {
-        opt.selected = false;
-      });
-    }
+    walkInPickerCheckboxes.forEach((cb) => {
+      cb.checked = false;
+    });
     syncInputsByAttendance();
   });
 
   presentCheckboxes.forEach((checkbox) => {
-    checkbox.addEventListener('change', syncInputsByAttendance);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.classList.contains('walk-in-checkbox')) {
+        const row = checkbox.closest('.walk-in-row');
+        const childId = row?.dataset.childId;
+        if (childId) setWalkInSelected(childId, checkbox.checked);
+      } else {
+        syncInputsByAttendance();
+      }
+    });
+  });
+
+  walkInPickerCheckboxes.forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      setWalkInSelected(checkbox.value, checkbox.checked);
+    });
+  });
+
+  toggleWalkInsBtn?.addEventListener('click', () => {
+    walkInPicker?.classList.toggle('hidden');
+    if (!walkInPicker?.classList.contains('hidden')) walkInSearch?.focus();
+  });
+
+  closeWalkInsBtn?.addEventListener('click', () => {
+    walkInPicker?.classList.add('hidden');
+  });
+
+  toggleBulkTechniquesBtn?.addEventListener('click', () => {
+    bulkTechniquePanel?.classList.toggle('hidden');
+  });
+
+  bulkTechniqueCheckboxes.forEach((checkbox) => {
+    checkbox.addEventListener('change', updateBulkTechniqueCount);
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!bulkTechniquePanel || bulkTechniquePanel.classList.contains('hidden')) return;
+    const menu = event.target.closest('.bulk-technique-menu');
+    if (!menu) bulkTechniquePanel.classList.add('hidden');
   });
 
   studentSearch?.addEventListener('input', () => {
-    const query = studentSearch.value.trim().toLowerCase();
-    studentRows.forEach((row) => {
-      const haystack = row.dataset.search || '';
-      row.style.display = !query || haystack.includes(query) ? '' : 'none';
+    applyStudentSearch();
+  });
+
+  walkInSearch?.addEventListener('input', () => {
+    const query = walkInSearch.value.trim().toLowerCase();
+    walkInOptions.forEach((option) => {
+      const haystack = option.dataset.search || '';
+      option.style.display = !query || haystack.includes(query) ? '' : 'none';
     });
   });
 
   syncInputsByAttendance();
+  updateBulkTechniqueCount();
 </script>
 {% endblock %}

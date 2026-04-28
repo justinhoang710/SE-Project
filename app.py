@@ -2072,10 +2072,6 @@ def _staff_attendance_screen(page_title):
             tuple(linked_offering_ids),
         )
         enrolled_ids = {int(row["child_id"]) for row in cur.fetchall()}
-        if not enrolled_ids:
-            flash("No students are enrolled in this class.", "error")
-            cur.close()
-            return redirect(request.path)
         if action == "mark_all_present":
             present_child_ids = set(enrolled_ids)
         else:
@@ -2096,6 +2092,10 @@ def _staff_attendance_screen(page_title):
                 eligible, _ = _is_child_eligible_for_offering(child_row, class_row)
                 if eligible:
                     valid_walk_in_ids.add(int(child_row["id"]))
+        if not enrolled_ids and not valid_walk_in_ids:
+            flash("Please choose at least one valid walk-in student.", "error")
+            cur.close()
+            return redirect(url_for(attendance_endpoint, class_ref=class_ref))
         present_child_ids = present_child_ids.union(valid_walk_in_ids)
 
         cur.execute(
@@ -2165,10 +2165,11 @@ def _staff_attendance_screen(page_title):
                 cur.close()
                 return redirect(request.path)
 
-            bulk_technique_ids = set()
-            bulk_technique_id = request.form.get("bulk_technique_id", type=int)
-            if bulk_technique_id:
-                bulk_technique_ids.add(bulk_technique_id)
+            bulk_technique_ids = {
+                int(value)
+                for value in request.form.getlist("bulk_technique_ids")
+                if (value or "").isdigit()
+            }
             bulk_learned_increment = request.form.get("bulk_learned_increment", type=int) or 1
             updates = 0
             for child_id in present_child_ids:
@@ -2285,6 +2286,7 @@ def _staff_attendance_screen(page_title):
         cur.execute(
             """
             SELECT id, program_track, class_name, class_date,
+                   min_belt_index, max_belt_index,
                    TIME_FORMAT(start_time, '%h:%i %p') AS start_label,
                    TIME_FORMAT(end_time, '%h:%i %p') AS end_label,
                    start_time, end_time
@@ -2333,7 +2335,7 @@ def _staff_attendance_screen(page_title):
         if selected_class_info:
             cur.execute(
                 """
-                SELECT c.id, c.child_name
+                SELECT c.id, c.child_name, c.program_track, c.belt_index
                 FROM children c
                 WHERE c.program_track = %s
                 ORDER BY c.child_name
@@ -2341,11 +2343,24 @@ def _staff_attendance_screen(page_title):
                 (selected_class_info["program_track"],),
             )
             all_track_children = cur.fetchall()
-            walk_in_candidates = [
-                child
-                for child in all_track_children
-                if int(child["id"]) not in enrolled_child_ids
-            ]
+            for child in all_track_children:
+                if int(child["id"]) in enrolled_child_ids:
+                    continue
+                eligible, _ = _is_child_eligible_for_offering(child, selected_class_info)
+                if not eligible:
+                    continue
+                track = _normalize_track(child.get("program_track"))
+                belt_index = int(child.get("belt_index") or 0)
+                belt_index = max(0, min(belt_index, len(BELT_SEQUENCE) - 1))
+                current_belt = _belt_name_for_index(belt_index)
+                completed_skills, total_skills = _get_child_belt_progress(
+                    cur, child["id"], track, current_belt
+                )
+                child["program_track"] = track
+                child["current_belt"] = current_belt
+                child["belt_progress_count"] = completed_skills
+                child["total_skills"] = total_skills
+                walk_in_candidates.append(child)
 
     if selected_class_info and selected_class_info.get("program_track"):
         cur.execute(
