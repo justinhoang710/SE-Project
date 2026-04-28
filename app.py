@@ -56,6 +56,22 @@ def _belt_name_for_index(belt_index):
     return BELT_SEQUENCE[safe_idx]
 
 
+def _belt_bounds_for_offering(offering_row):
+    max_belt_allowed = len(BELT_SEQUENCE) - 1
+    min_belt = int(offering_row.get("min_belt_index") or 0)
+    max_belt = int(offering_row.get("max_belt_index") or max_belt_allowed)
+    min_belt = max(0, min(min_belt, max_belt_allowed))
+    max_belt = max(0, min(max_belt, max_belt_allowed))
+    if min_belt > max_belt:
+        min_belt, max_belt = max_belt, min_belt
+    return min_belt, max_belt
+
+
+def _belt_names_for_offering(offering_row):
+    min_belt, max_belt = _belt_bounds_for_offering(offering_row)
+    return BELT_SEQUENCE[min_belt : max_belt + 1]
+
+
 def _normalize_track(value):
     normalized = (value or "").strip().lower().replace("-", "_")
     normalized = TRACK_NORMALIZATION.get(normalized, normalized)
@@ -688,8 +704,7 @@ def _is_child_eligible_for_offering(child_row, offering_row):
         return False, "Track must match class track"
 
     child_belt = int(child_row.get("belt_index") or 0)
-    min_belt = int(offering_row.get("min_belt_index") or 0)
-    max_belt = int(offering_row.get("max_belt_index") or len(BELT_SEQUENCE) - 1)
+    min_belt, max_belt = _belt_bounds_for_offering(offering_row)
     if child_belt < min_belt or child_belt > max_belt:
         return False, f"Belt must be {BELT_SEQUENCE[min_belt]}-{BELT_SEQUENCE[max_belt]}"
     return True, ""
@@ -2106,6 +2121,21 @@ def _staff_attendance_screen(page_title):
             flash("Class not found.", "error")
             cur.close()
             return redirect(request.path)
+        class_row["program_track"] = _normalize_track(class_row.get("program_track"))
+        class_belt_names = _belt_names_for_offering(class_row)
+        belt_placeholders = ", ".join(["%s"] * len(class_belt_names))
+
+        cur.execute(
+            f"""
+            SELECT id
+            FROM techniques
+            WHERE is_active = 1
+              AND program_track = %s
+              AND belt_name IN ({belt_placeholders})
+            """,
+            (class_row["program_track"], *class_belt_names),
+        )
+        allowed_technique_ids = {int(row["id"]) for row in cur.fetchall()}
 
         linked_offering_ids = fetch_linked_offering_ids(class_row)
         if not linked_offering_ids:
@@ -2214,6 +2244,7 @@ def _staff_attendance_screen(page_title):
                 for value in request.form.getlist("bulk_technique_ids")
                 if (value or "").isdigit()
             }
+            bulk_technique_ids = bulk_technique_ids.intersection(allowed_technique_ids)
             bulk_learned_increment = request.form.get("bulk_learned_increment", type=int) or 1
             updates = 0
             for child_id in present_child_ids:
@@ -2222,6 +2253,9 @@ def _staff_attendance_screen(page_title):
                     for value in request.form.getlist(f"technique_ids_{child_id}")
                     if (value or "").isdigit()
                 }
+                per_student_technique_ids = per_student_technique_ids.intersection(
+                    allowed_technique_ids
+                )
                 technique_ids = sorted(per_student_technique_ids.union(bulk_technique_ids))
                 for technique_id in technique_ids:
                     learned_increment = (
@@ -2344,6 +2378,9 @@ def _staff_attendance_screen(page_title):
             selected_class_info["program_track"] = _normalize_track(
                 selected_class_info.get("program_track")
             )
+            min_belt_index, max_belt_index = _belt_bounds_for_offering(selected_class_info)
+            selected_class_info["min_belt_name"] = BELT_SEQUENCE[min_belt_index]
+            selected_class_info["max_belt_name"] = BELT_SEQUENCE[max_belt_index]
             linked_offering_ids = fetch_linked_offering_ids(selected_class_info)
             if not linked_offering_ids:
                 linked_offering_ids = [selected_offering_id]
@@ -2407,15 +2444,18 @@ def _staff_attendance_screen(page_title):
                 walk_in_candidates.append(child)
 
     if selected_class_info and selected_class_info.get("program_track"):
+        class_belt_names = _belt_names_for_offering(selected_class_info)
+        belt_placeholders = ", ".join(["%s"] * len(class_belt_names))
         cur.execute(
-            """
+            f"""
             SELECT id, technique_name, program_track, belt_name
             FROM techniques
             WHERE is_active = 1
               AND program_track = %s
+              AND belt_name IN ({belt_placeholders})
             ORDER BY belt_name, technique_name
             """,
-            (selected_class_info["program_track"],),
+            (selected_class_info["program_track"], *class_belt_names),
         )
     else:
         cur.execute(

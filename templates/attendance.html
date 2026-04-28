@@ -18,7 +18,7 @@
     </label>
     <div class="hint" style="align-self: end;">
       {% if selected_class_info %}
-        {{ selected_class_info.class_date }} | {{ selected_class_info.start_label }}-{{ selected_class_info.end_label }} | {{ selected_class_info.program_track|track_label }}
+        {{ selected_class_info.class_date }} | {{ selected_class_info.start_label }}-{{ selected_class_info.end_label }} | {{ selected_class_info.program_track|track_label }} | Belts {{ selected_class_info.min_belt_name }}-{{ selected_class_info.max_belt_name }}
       {% else %}
         No classes available.
       {% endif %}
