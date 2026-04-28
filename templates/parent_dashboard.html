@@ -17,7 +17,7 @@
   <h3>Academy Schedule (Next 2 Weeks)</h3>
   <div class="section-tools">
     <label>Search
-      <input type="search" placeholder="Date, track, class" data-table-filter="academy-schedule-table" />
+      <input type="search" placeholder="Day, date, track, class" data-table-filter="academy-schedule-table" />
     </label>
   </div>
   <div class="table-shell tall">
@@ -26,7 +26,7 @@
       <tbody>
       {% for cls in academy_schedule %}
         <tr>
-          <td>{{ cls.shift_date }}</td>
+          <td>{{ cls.shift_day_name }} {{ cls.shift_date }}</td>
           <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
           <td>{{ cls.program_track|track_label }}</td>
           <td>{{ cls.class_name }}</td>
@@ -43,13 +43,13 @@
   <div class="section-heading-row">
     <div>
       <h3>Class Signup</h3>
-      <p class="hint">Weekly limit per child: {{ max_classes_per_week }}</p>
+      <p class="hint">Next 2 weeks. Weekly limit per child: {{ max_classes_per_week }}</p>
     </div>
     <a class="button secondary" href="{{ url_for('parent_children_dashboard') }}">View signed-up classes</a>
   </div>
   <div class="section-tools">
     <label>Search Offerings
-      <input type="search" placeholder="Track, class, date" data-table-filter="parent-signup-table" />
+      <input type="search" placeholder="Day, date, track, class" data-table-filter="parent-signup-table" />
     </label>
   </div>
   <div class="table-shell tall">
@@ -59,7 +59,7 @@
       {% for cls in signup_classes %}
         <tr>
           <td>{{ cls.class_name }}</td>
-          <td>{{ cls.class_date }}</td>
+          <td>{{ cls.class_day_name }} {{ cls.class_date }}</td>
           <td>{{ cls.start_label }}-{{ cls.end_label }}</td>
           <td>{{ cls.program_track|track_label }}</td>
           <td>{{ belt_sequence[cls.min_belt_index] }}-{{ belt_sequence[cls.max_belt_index] }}</td>

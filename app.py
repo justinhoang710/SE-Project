@@ -4180,6 +4180,8 @@ def parent_cancel_signup(offering_id, child_id):
 
 
 def _build_parent_children_payload(cur, parent_user_id):
+    signup_start = date.today()
+    signup_end = signup_start + timedelta(days=13)
     cur.execute(
         """
         SELECT id, child_name, program_track, belt_index, child_age
@@ -4201,6 +4203,7 @@ def _build_parent_children_payload(cur, parent_user_id):
             co.program_track,
             co.class_name,
             co.class_date,
+            DATE_FORMAT(co.class_date, '%W') AS class_day_name,
             YEARWEEK(co.class_date, 1) AS week_key,
             co.min_age,
             co.max_age,
@@ -4211,10 +4214,10 @@ def _build_parent_children_payload(cur, parent_user_id):
             TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
             TIME_FORMAT(co.end_time, '%h:%i %p') AS end_label
         FROM class_offerings co
-        WHERE co.class_date >= %s
+        WHERE co.class_date BETWEEN %s AND %s
         ORDER BY co.class_date, co.start_time
         """,
-        (date.today(),),
+        (signup_start, signup_end),
     )
     signup_classes = cur.fetchall()
     child_ids = [c["id"] for c in children]
@@ -4410,6 +4413,7 @@ def parent_dashboard():
         """
         SELECT
             co.class_date AS shift_date,
+            DATE_FORMAT(co.class_date, '%W') AS shift_day_name,
             co.class_name,
             co.program_track,
             TIME_FORMAT(co.start_time, '%h:%i %p') AS start_label,
