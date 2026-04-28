@@ -1,6 +1,7 @@
 import os
 import hashlib
 import hmac
+import re
 from datetime import date, datetime, timedelta
 from functools import wraps
 from secrets import token_urlsafe
@@ -699,6 +700,49 @@ def _cleanup_schedule_history(cur):
         "DELETE FROM schedule_history WHERE activity_date < %s",
         (date.today(),),
     )
+
+
+def _user_label_map(cur, user_ids):
+    clean_ids = sorted({int(user_id) for user_id in user_ids if user_id})
+    if not clean_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(clean_ids))
+    cur.execute(
+        f"SELECT id, username FROM users WHERE id IN ({placeholders})",
+        tuple(clean_ids),
+    )
+    return {int(row["id"]): row["username"] for row in cur.fetchall()}
+
+
+def _user_label(user_id, user_labels):
+    if not user_id:
+        return "unassigned"
+    return user_labels.get(int(user_id), f"unknown user #{user_id}")
+
+
+def _replace_user_ids_in_schedule_history(cur, schedule_history):
+    user_ids = set()
+    for row in schedule_history:
+        details_text = row.get("details_text") or ""
+        user_ids.update(
+            int(match)
+            for match in re.findall(r"\buser\s+(\d+)\b", details_text, re.IGNORECASE)
+        )
+    user_labels = _user_label_map(cur, user_ids)
+    for row in schedule_history:
+        details_text = row.get("details_text") or ""
+
+        def replace_match(match):
+            user_id = int(match.group(1))
+            return user_labels.get(user_id, match.group(0))
+
+        row["details_text"] = re.sub(
+            r"\buser\s+(\d+)\b",
+            replace_match,
+            details_text,
+            flags=re.IGNORECASE,
+        )
+    return schedule_history
 
 
 def _log_schedule_activity(cur, shift_id, activity_type, details_text, actor_user_id=None):
@@ -2556,6 +2600,7 @@ def manager_dashboard():
         """
     )
     schedule_history = cur.fetchall()
+    _replace_user_ids_in_schedule_history(cur, schedule_history)
     calendar_weeks = _build_two_week_calendar(
         calendar_start,
         grouped_upcoming_blocks,
@@ -2663,10 +2708,11 @@ def manager_schedule():
                 return schedule_redirect(selected_day, selected_view)
 
             cur.execute(
-                "SELECT id FROM users WHERE id = %s AND role = 'employee'",
+                "SELECT id, username FROM users WHERE id = %s AND role = 'employee'",
                 (employee_id,),
             )
-            if not cur.fetchone():
+            employee = cur.fetchone()
+            if not employee:
                 flash("Please choose a valid employee.", "error")
                 cur.close()
                 return schedule_redirect(selected_day, selected_view)
@@ -2708,7 +2754,10 @@ def manager_schedule():
                     cur,
                     first_shift_id,
                     "shift_created",
-                    f"Created {repeat_text} schedule for user {employee_id}: {shift_day} {start_db}-{end_db} ({len(occurrence_days)} shift(s))",
+                    (
+                        f"Created {repeat_text} schedule for {employee['username']}: "
+                        f"{shift_day} {start_db}-{end_db} ({len(occurrence_days)} shift(s))"
+                    ),
                     session["user_id"],
                 )
             db.commit()
@@ -3610,6 +3659,10 @@ def process_request(request_id, action):
                 (req["shift_id"],),
             )
             shift_before = cur.fetchone() or {}
+            user_labels = _user_label_map(
+                cur,
+                [shift_before.get("employee_user_id"), req["requested_employee_id"]],
+            )
             cur.execute(
                 "UPDATE shifts SET employee_user_id = %s WHERE id = %s",
                 (req["requested_employee_id"], req["shift_id"]),
@@ -3618,7 +3671,11 @@ def process_request(request_id, action):
                 cur,
                 req["shift_id"],
                 "switch_approved",
-                f"Shift moved from user {shift_before.get('employee_user_id')} to user {req['requested_employee_id']}",
+                (
+                    "Shift moved from "
+                    f"{_user_label(shift_before.get('employee_user_id'), user_labels)} "
+                    f"to {_user_label(req['requested_employee_id'], user_labels)}"
+                ),
                 session["user_id"],
             )
         elif req["request_type"] == "callout":
@@ -3629,6 +3686,10 @@ def process_request(request_id, action):
                     (req["shift_id"],),
                 )
                 shift_before = cur.fetchone() or {}
+                user_labels = _user_label_map(
+                    cur,
+                    [shift_before.get("employee_user_id"), replacement_id],
+                )
                 cur.execute(
                     "UPDATE shifts SET employee_user_id = %s WHERE id = %s",
                     (replacement_id, req["shift_id"]),
@@ -3637,7 +3698,11 @@ def process_request(request_id, action):
                     cur,
                     req["shift_id"],
                     "callout_approved",
-                    f"Shift moved from user {shift_before.get('employee_user_id')} to replacement user {replacement_id}",
+                    (
+                        "Shift moved from "
+                        f"{_user_label(shift_before.get('employee_user_id'), user_labels)} "
+                        f"to replacement {_user_label(replacement_id, user_labels)}"
+                    ),
                     session["user_id"],
                 )
             else:
